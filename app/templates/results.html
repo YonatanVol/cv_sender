@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block body %}
+
+<div class="card">
+  <h1>Results</h1>
+  {% if latest %}
+    <p><span class="pill {{ latest.status }}">{{ latest.status }}</span>
+       {{ latest.message }}</p>
+  {% else %}
+    <p class="muted">No runs yet — go <a class="link" href="/">Run</a>.</p>
+  {% endif %}
+</div>
+
+{% if items %}
+<div class="card">
+  <h2>This run ({{ items|length }})</h2>
+  <table>
+    <tr><th>Company</th><th>Role</th><th>Status</th><th>Detail</th><th></th></tr>
+    {% for it in items %}
+    <tr>
+      <td>{{ it.source }}{% if it.company != 'linkedin' %} · {{ it.company }}{% endif %}</td>
+      <td>{{ it.title }}</td>
+      <td><span class="pill {{ it.status }}">{{ it.status }}</span></td>
+      <td class="muted">{{ it.reason }}
+        {% if it.screenshot %} · <a class="link" href="/{{ it.screenshot }}" target="_blank">shot</a>{% endif %}
+      </td>
+      <td>{% if it.url %}<a class="link" href="{{ it.url }}" target="_blank">open</a>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Needs you ({{ needs_review|length }})</h2>
+  <p class="muted">Couldn't auto-finish (CAPTCHA, custom question, or external
+    apply). Open and finish these by hand.</p>
+  {% if needs_review %}
+  <table>
+    <tr><th>Company</th><th>Role</th><th>Why</th><th></th></tr>
+    {% for a in needs_review %}
+    <tr>
+      <td>{{ a.source }}{% if a.company != 'linkedin' %} · {{ a.company }}{% endif %}</td>
+      <td>{{ a.title }}</td>
+      <td class="muted">{{ a.reason }}</td>
+      <td>{% if a.apply_url %}<a class="link" href="{{ a.apply_url }}" target="_blank">apply →</a>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+    <p class="muted">Nothing waiting. 🎉</p>
+  {% endif %}
+</div>
+{% endblock %}

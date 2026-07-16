@@ -1,0 +1,6 @@
+# Secrets & personal data — never commit
+data/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store

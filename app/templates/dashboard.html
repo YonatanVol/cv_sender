@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block body %}
+
+{% if not profile or not profile.email or not profile.cv_path %}
+  <div class="banner warn-banner">
+    👋 First, set up your <a class="link" href="/profile">profile and CV</a>
+    so the tool knows what to send.
+  </div>
+{% endif %}
+
+<div class="card">
+  <h1>One-click apply</h1>
+  <p class="muted">Finds junior / student / new-grad software roles
+    (Israel + remote) and applies for you.</p>
+
+  <form method="post" action="/run">
+    <div class="row">
+      <div>
+        <label>Sources</label>
+        <div class="check"><input type="checkbox" name="use_ats" checked> ATS feeds (Greenhouse / Lever / Ashby / Comeet)</div>
+        <div class="check"><input type="checkbox" name="use_linkedin" checked> LinkedIn Easy Apply</div>
+      </div>
+      <div>
+        <label>Geography</label>
+        <select name="geography">
+          <option value="israel_remote" selected>Israel + remote</option>
+          <option value="israel_only">Israel only</option>
+          <option value="anywhere">Anywhere</option>
+        </select>
+        <label>Max applications this run</label>
+        <input type="number" name="cap" value="20" min="1" max="100">
+      </div>
+    </div>
+
+    <div class="check" style="margin-top:14px">
+      <input type="checkbox" name="submit" id="submit">
+      <label for="submit" style="margin:0;color:var(--fg)">
+        <b>Actually submit</b> — leave OFF for a safe dry run (fills forms but
+        never sends). Turn ON to really apply.
+      </label>
+    </div>
+
+    <button class="big" type="submit" {% if running %}disabled{% endif %}>
+      {% if running %}Running… see status below{% else %}▶ Run{% endif %}
+    </button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Status</h2>
+  <div id="status">
+    {% if latest %}
+      <p><span class="pill {{ latest.status }}">{{ latest.status }}</span>
+         {{ latest.message }}</p>
+    {% else %}
+      <p class="muted">No runs yet.</p>
+    {% endif %}
+  </div>
+  <p><a class="link" href="/results">View detailed results →</a></p>
+</div>
+
+<div class="card">
+  <h2>Totals so far</h2>
+  <p>
+    <span class="pill applied">applied {{ counts.get('applied', 0) }}</span>
+    <span class="pill needs_review">needs review {{ counts.get('needs_review', 0) }}</span>
+    <span class="pill failed">failed {{ counts.get('failed', 0) }}</span>
+  </p>
+</div>
+
+<script>
+async function poll() {
+  try {
+    const r = await fetch('/status');
+    const d = await r.json();
+    if (!d || !d.status) return;
+    const s = d.stats || {};
+    document.getElementById('status').innerHTML =
+      `<p><span class="pill ${d.status}">${d.status}</span> ${d.message || ''}</p>` +
+      `<p class="muted">applied ${s.applied||0} · needs review ${s.needs_review||0}` +
+      ` · failed ${s.failed||0} · filled ${s.filled||0} · scanned ${s.scanned||0}</p>`;
+    if (d.status === 'running') setTimeout(poll, 3000);
+    else if (d.status === 'done' || d.status === 'error') {
+      // refresh the page so the Run button re-enables
+      if (document.querySelector('button[disabled]')) location.reload();
+    }
+  } catch (e) {}
+}
+poll();
+</script>
+{% endblock %}

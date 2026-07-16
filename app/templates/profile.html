@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h1>Your profile</h1>
+  <p class="muted">Used to auto-fill application forms. Stored locally only.</p>
+
+  <form method="post" action="/profile" enctype="multipart/form-data">
+    <div class="row">
+      <div>
+        <label>Full name</label>
+        <input type="text" name="full_name" value="{{ profile.full_name or '' }}" required>
+      </div>
+      <div>
+        <label>Email</label>
+        <input type="email" name="email" value="{{ profile.email or '' }}" required>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Phone</label>
+        <input type="text" name="phone" value="{{ profile.phone or '' }}"
+               placeholder="+972…">
+      </div>
+      <div>
+        <label>Location (city/country)</label>
+        <input type="text" name="location" value="{{ profile.location or 'Israel' }}">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>LinkedIn URL</label>
+        <input type="text" name="linkedin" value="{{ profile.linkedin or '' }}">
+      </div>
+      <div>
+        <label>GitHub URL</label>
+        <input type="text" name="github" value="{{ profile.github or '' }}">
+      </div>
+    </div>
+    <label>Portfolio / website (optional)</label>
+    <input type="text" name="portfolio" value="{{ profile.portfolio or '' }}">
+
+    <div class="check" style="margin-top:12px">
+      <input type="checkbox" name="work_authorized_israel"
+             {% if profile.work_authorized_israel != 0 %}checked{% endif %}>
+      Authorized to work in Israel (no sponsorship needed)
+    </div>
+    <div class="check">
+      <input type="checkbox" name="needs_sponsorship"
+             {% if profile.needs_sponsorship != 0 %}checked{% endif %}>
+      Would need visa sponsorship for roles abroad
+    </div>
+
+    <label>CV / Resume (PDF)</label>
+    <input type="file" name="cv" accept="application/pdf">
+    {% if profile.cv_path %}
+      <p class="muted">Current: {{ profile.cv_path }} ✓ (leave empty to keep)</p>
+    {% endif %}
+
+    <div style="margin-top:16px"><button type="submit">Save profile</button></div>
+  </form>
+</div>
+{% endblock %}
