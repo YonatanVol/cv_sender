@@ -120,3 +120,47 @@ def results(request: Request):
         "items": (latest or {}).get("stats", {}).get("items", []),
         "needs_review": db.list_applications(status="needs_review"),
     })
+
+
+# ---------------------------- follow-up tracker -----------------------------
+
+FOLLOWUP_AFTER_DAYS = 7  # highlight applications silent this long
+
+
+@app.get("/tracker", response_class=HTMLResponse)
+def tracker(request: Request):
+    import time as _time
+    apps = db.list_tracked()
+    now = _time.time()
+    for a in apps:
+        ref = a.get("stage_at") or a.get("created_at") or now
+        a["days_in_stage"] = int((now - ref) // 86400)
+        a["needs_followup"] = (
+            a.get("stage") in ("applied", "followed_up")
+            and a["days_in_stage"] >= FOLLOWUP_AFTER_DAYS
+        )
+    tracked = [a for a in apps if a.get("stage")]
+    stats = {
+        "sent": len(tracked),
+        "waiting": sum(1 for a in tracked
+                       if a["stage"] in ("applied", "followed_up")),
+        "followup": sum(1 for a in tracked if a["needs_followup"]),
+        "interviews": sum(1 for a in tracked
+                          if a["stage"] in ("interview", "offer")),
+    }
+    return TEMPLATES.TemplateResponse(request, "tracker.html", {
+        "apps": apps, "stats": stats, "stages": db.STAGES,
+    })
+
+
+@app.post("/tracker/{app_id}/stage")
+def tracker_set_stage(app_id: int, stage: str = Form(...),
+                      note: str = Form("")):
+    db.set_stage(app_id, stage, note)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/tracker/{app_id}/note")
+def tracker_add_note(app_id: int, note: str = Form(...)):
+    db.add_event(app_id, note)
+    return JSONResponse({"ok": True})

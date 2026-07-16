@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block body %}
+
+<style>
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px;
+           margin-bottom:18px; }
+  .stat { background:var(--card); border:1px solid var(--line);
+          border-radius:12px; padding:14px 16px; }
+  .stat .n { font-size:26px; font-weight:700; }
+  .stat .l { color:var(--mut); font-size:12px; text-transform:uppercase;
+             letter-spacing:.05em; }
+  .stat.alert .n { color:var(--warn); }
+  .stat.good .n { color:var(--ok); }
+
+  .app { background:var(--card); border:1px solid var(--line);
+         border-radius:12px; padding:14px 16px; margin-bottom:10px; }
+  .app.followup { border-color:rgba(241,196,15,.5); }
+  .app-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .app-head .co { font-weight:700; font-size:15px; }
+  .app-head .role { color:var(--mut); flex:1; min-width:160px;
+                    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .app-head .days { color:var(--mut); font-size:12px; white-space:nowrap; }
+  .flag { font-size:12px; color:var(--warn); font-weight:600;
+          white-space:nowrap; }
+  select.stage { width:auto; padding:5px 8px; font-size:13px;
+                 border-radius:7px; }
+  .stage-applied     { border-color:var(--acc)  !important; color:var(--acc); }
+  .stage-followed_up { border-color:var(--warn) !important; color:var(--warn); }
+  .stage-replied, .stage-interview, .stage-offer
+                     { border-color:var(--ok)   !important; color:var(--ok); }
+  .stage-rejected, .stage-no_answer
+                     { border-color:var(--bad)  !important; color:var(--mut); }
+
+  .timeline { margin:10px 0 0; padding:10px 0 0; border-top:1px dashed var(--line);
+              display:none; }
+  .app.open .timeline { display:block; }
+  .ev { display:flex; gap:10px; font-size:13px; margin:4px 0; }
+  .ev .t { color:var(--mut); white-space:nowrap; font-size:12px; padding-top:1px; }
+  .ev .k-stage { color:var(--acc); }
+  .noteform { display:flex; gap:8px; margin-top:10px; }
+  .noteform input { flex:1; padding:7px 10px; font-size:13px; }
+  .noteform button { padding:7px 14px; font-size:13px; }
+  .toggle { background:none; border:0; color:var(--mut); cursor:pointer;
+            font-size:12px; padding:4px 6px; }
+  .toggle:hover { color:var(--fg); }
+  .filters { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  .filters button { background:#11141a; border:1px solid var(--line);
+                    color:var(--mut); font-size:13px; padding:6px 12px; }
+  .filters button.on { border-color:var(--acc); color:var(--acc); }
+  .untracked { opacity:.65; }
+</style>
+
+<h1 style="margin-bottom:12px">Tracker</h1>
+
+<div class="stats">
+  <div class="stat"><div class="n">{{ stats.sent }}</div><div class="l">CVs sent</div></div>
+  <div class="stat"><div class="n">{{ stats.waiting }}</div><div class="l">Awaiting reply</div></div>
+  <div class="stat alert"><div class="n">{{ stats.followup }}</div><div class="l">Need follow-up</div></div>
+  <div class="stat good"><div class="n">{{ stats.interviews }}</div><div class="l">Interviews+</div></div>
+</div>
+
+<div class="filters" id="filters">
+  <button data-f="all" class="on">All</button>
+  <button data-f="followup">⚠ Need follow-up</button>
+  {% for s in stages %}<button data-f="{{ s }}">{{ s.replace('_',' ') }}</button>{% endfor %}
+</div>
+
+{% for a in apps %}
+<div class="app {% if a.needs_followup %}followup{% endif %} {% if not a.stage %}untracked{% endif %}"
+     data-stage="{{ a.stage or '' }}" data-followup="{{ 1 if a.needs_followup else 0 }}">
+  <div class="app-head">
+    <span class="co">{{ a.company if a.company != 'linkedin' else a.source }}</span>
+    <span class="role" title="{{ a.title }}">{{ a.title }}</span>
+    {% if a.needs_followup %}<span class="flag">⚠ {{ a.days_in_stage }}d silent — follow up</span>
+    {% else %}<span class="days">{{ a.days_in_stage }}d in stage</span>{% endif %}
+    <select class="stage stage-{{ a.stage or 'none' }}" data-id="{{ a.id }}">
+      {% if not a.stage %}<option value="" selected>— track —</option>{% endif %}
+      {% for s in stages %}
+      <option value="{{ s }}" {% if a.stage == s %}selected{% endif %}>
+        {{ s.replace('_',' ') }}</option>
+      {% endfor %}
+    </select>
+    {% if a.apply_url %}<a class="link" href="{{ a.apply_url }}" target="_blank">open ↗</a>{% endif %}
+    <button class="toggle">history ({{ a.events|length }}) ▾</button>
+  </div>
+  <div class="timeline">
+    {% for e in a.events %}
+    <div class="ev">
+      <span class="t" data-ts="{{ e.at }}"></span>
+      <span class="k-{{ e.kind }}">{{ e.note }}</span>
+    </div>
+    {% else %}<div class="ev"><span class="muted">No history yet.</span></div>{% endfor %}
+    <form class="noteform" data-id="{{ a.id }}">
+      <input name="note" placeholder="Add a note (call, email sent, recruiter name…)" required>
+      <button>Add</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="card"><p class="muted">No applications yet — run a batch from the
+  <a class="link" href="/">Dashboard</a>.</p></div>
+{% endfor %}
+
+<script>
+  // Render event timestamps in local time.
+  document.querySelectorAll('.ev .t[data-ts]').forEach(el => {
+    const d = new Date(parseFloat(el.dataset.ts) * 1000);
+    el.textContent = d.toLocaleDateString(undefined,
+      {day:'numeric', month:'short'}) + ' ' +
+      d.toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit'});
+  });
+
+  document.querySelectorAll('.toggle').forEach(b =>
+    b.onclick = () => b.closest('.app').classList.toggle('open'));
+
+  document.querySelectorAll('select.stage').forEach(sel =>
+    sel.onchange = async () => {
+      if (!sel.value) return;
+      const body = new URLSearchParams({stage: sel.value});
+      await fetch(`/tracker/${sel.dataset.id}/stage`, {method:'POST', body});
+      location.reload();
+    });
+
+  document.querySelectorAll('.noteform').forEach(f =>
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const body = new URLSearchParams(new FormData(f));
+      await fetch(`/tracker/${f.dataset.id}/note`, {method:'POST', body});
+      location.reload();
+    });
+
+  const filters = document.getElementById('filters');
+  filters.onclick = (e) => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    filters.querySelectorAll('button').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    const f = btn.dataset.f;
+    document.querySelectorAll('.app').forEach(a => {
+      const show = f === 'all'
+        || (f === 'followup' && a.dataset.followup === '1')
+        || a.dataset.stage === f;
+      a.style.display = show ? '' : 'none';
+    });
+  };
+</script>
+{% endblock %}

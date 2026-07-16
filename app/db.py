@@ -66,8 +66,20 @@ def init_db() -> None:
                 started_at REAL, finished_at REAL,
                 status TEXT, message TEXT, stats_json TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS app_event (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                application_id INTEGER NOT NULL REFERENCES application(id),
+                at REAL, kind TEXT, note TEXT
+            );
             """
         )
+        # Follow-up tracking columns (added after initial release).
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(application)")}
+        if "stage" not in cols:
+            conn.execute("ALTER TABLE application ADD COLUMN stage TEXT")
+        if "stage_at" not in cols:
+            conn.execute("ALTER TABLE application ADD COLUMN stage_at REAL")
 
 
 # ----------------------------- profile -------------------------------------
@@ -248,3 +260,53 @@ def get_run(run_id: int) -> Optional[dict]:
         d = dict(row)
         d["stats"] = json.loads(d.get("stats_json") or "{}")
         return d
+
+
+# ---------------------------- follow-up tracker -----------------------------
+
+# Pipeline stages, in order. `stage` is NULL until the user starts tracking;
+# the tracker treats submitted applications with no stage as "applied".
+STAGES = ("applied", "followed_up", "replied", "interview", "offer",
+          "rejected", "no_answer")
+
+
+def list_tracked() -> list[dict]:
+    """All applications, newest first, with their events attached."""
+    with _connect() as conn:
+        apps = [dict(r) for r in conn.execute(
+            "SELECT * FROM application ORDER BY created_at DESC")]
+        events = conn.execute(
+            "SELECT * FROM app_event ORDER BY at ASC").fetchall()
+    by_app: dict[int, list[dict]] = {}
+    for e in events:
+        by_app.setdefault(e["application_id"], []).append(dict(e))
+    for a in apps:
+        a["events"] = by_app.get(a["id"], [])
+        if not a.get("stage") and a.get("status") == "applied":
+            a["stage"] = "applied"
+    return apps
+
+
+def set_stage(app_id: int, stage: str, note: str = "") -> None:
+    if stage not in STAGES:
+        raise ValueError(f"unknown stage: {stage}")
+    now = time.time()
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE application SET stage=?, stage_at=?, updated_at=? WHERE id=?",
+            (stage, now, now, app_id),
+        )
+        conn.execute(
+            "INSERT INTO app_event (application_id, at, kind, note) "
+            "VALUES (?, ?, 'stage', ?)",
+            (app_id, now, note or f"moved to {stage}"),
+        )
+
+
+def add_event(app_id: int, note: str, kind: str = "note") -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO app_event (application_id, at, kind, note) "
+            "VALUES (?, ?, ?, ?)",
+            (app_id, time.time(), kind, note),
+        )
