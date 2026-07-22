@@ -78,8 +78,10 @@ def score_job(job, mode: str = "israel_remote",
     loc = job.location or ""
     signals: list[str] = []
 
-    # --- role gate ---
-    if not _has(title, K.ROLE_EN, K.ROLE_HE) and not _has(desc[:600], K.ROLE_EN, K.ROLE_HE):
+    # --- role gate (title-based for precision; description is used only for
+    # seniority/YoE below, so a 'Public Policy Intern' JD that mentions software
+    # doesn't sneak in) ---
+    if not _has(title, K.ROLE_EN, K.ROLE_HE):
         return Verdict(False, 0, "role", "not a software role")
 
     # --- geography gate ---

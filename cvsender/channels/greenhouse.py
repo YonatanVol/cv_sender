@@ -39,9 +39,12 @@ class GreenhouseChannel:
     # ------------------------------ discover ------------------------------
     async def discover(self, spec: dict) -> list[Job]:
         jobs: list[Job] = []
+        ct = spec.get("_cancel")
         async with httpx.AsyncClient(timeout=20, follow_redirects=True,
                                      headers={"User-Agent": USER_AGENT}) as c:
             for token in self.tokens:
+                if ct is not None:
+                    ct.check()          # cancel is responsive during discovery
                 try:
                     r = await c.get(LIST_URL.format(token=token),
                                     params={"content": "true"})
@@ -110,13 +113,13 @@ class GreenhouseChannel:
             cv_attached = await _attach_cv(root, cv_path)
 
             if await _has_captcha(root):
-                shot = await _shot(page, job)
+                shot = await _shot(page, job, root=root)
                 return PrepareResult(state=NEEDS_INPUT, filled=filled,
                                      answers=answers, cv_attached=cv_attached,
                                      screenshot=shot, reason="CAPTCHA present")
 
             questions = await _required_unfilled(root)
-            shot = await _shot(page, job)
+            shot = await _shot(page, job, root=root)
 
             if not filled:
                 return PrepareResult(state=NEEDS_INPUT, screenshot=shot,
@@ -405,8 +408,19 @@ async def _submit_and_verify(page, root, submit, cancel):
     return None
 
 
-async def _shot(page, job, suffix: str = "prepare") -> str:
+async def _shot(page, job, suffix: str = "prepare", root=None) -> str:
     try:
+        # Scroll the filled form into view so the review card shows the form,
+        # not the top-of-page job description.
+        if root is not None:
+            for sel in ("#first_name", "input[type='file']", "#submit_app"):
+                el = await root.query_selector(sel)
+                if el:
+                    try:
+                        await el.scroll_into_view_if_needed(timeout=2000)
+                    except Exception:
+                        pass
+                    break
         SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
         name = f"gh_{int(time.time()*1000)}_{suffix}.png"
         path = SCREENSHOT_DIR / name

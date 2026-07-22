@@ -26,8 +26,8 @@ class RunManager:
     def start_prepare(self, run_id: int, options: dict) -> bool:
         return self._start(run_id, lambda c: run_prepare(run_id, options, c))
 
-    def start_send(self, run_id: int, item_ids: list[int]) -> bool:
-        return self._start(run_id, lambda c: run_send(run_id, item_ids, c))
+    def start_send(self, run_id: int) -> bool:
+        return self._start(run_id, lambda c: run_send(run_id, c))
 
     def _start(self, run_id: int, factory) -> bool:
         with self._lock:

@@ -52,6 +52,7 @@ async def run_prepare(run_id: int, options: dict, cancel) -> None:
     # ---- discover ----
     _emit(run_id, "phase", "Discovering jobs…")
     spec: dict = dict(options)
+    spec["_cancel"] = cancel
     all_jobs: list[Job] = []
     for name, adapter in adapters.items():
         cancel.check()
@@ -170,23 +171,25 @@ def _apply_prepare_result(run_id, it, res, cv_path, profile):
                 "screenshot": res.screenshot})
 
 
-async def run_send(run_id: int, item_ids: list[int], cancel) -> None:
-    """SEND phase: for each confirmed item, re-fill and perform the one
-    irreversible submit, then verify. Sequential + rate-limited (ban safety)."""
+async def run_send(run_id: int, cancel) -> None:
+    """SEND phase: drain every item the human confirmed into 'sending', re-fill
+    and perform the one irreversible submit, then verify. Strictly sequential +
+    rate-limited (ban safety); late confirms are picked up in the same drain."""
     profile = store.get_profile()
     adapters = build_adapters({"channels": ["greenhouse"]})
     store.update_run(run_id, status="sending", phase="send")
     import random
     async with browser_context(headless=False) as ctx:
-        for iid in item_ids:
+        while True:
             try:
                 cancel.check()
             except Cancelled:
                 break
             store.heartbeat(run_id)
-            it = store.get_item(iid)
-            if not it or it["state"] != "sending":
-                continue
+            it = store.next_in_state(run_id, "sending")
+            if not it:
+                break
+            iid = it["id"]
             rj = json.loads(it.get("result_json") or "{}")
             h = rj.get("handle") or {}
             handle = SendHandle(

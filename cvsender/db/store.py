@@ -174,6 +174,13 @@ def next_queued(run_id: int) -> Optional[dict]:
             "ORDER BY score DESC NULLS LAST, id LIMIT 1", (run_id,)).fetchone())
 
 
+def next_in_state(run_id: int, state: str) -> Optional[dict]:
+    with ro() as c:
+        return _row(c.execute(
+            "SELECT * FROM run_items WHERE run_id=? AND state=? ORDER BY id LIMIT 1",
+            (run_id, state)).fetchone())
+
+
 def set_item(item_id: int, **fields) -> None:
     if not fields:
         return

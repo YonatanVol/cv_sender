@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CV Sender v2</title>
+<style>
+  :root{--bg:#0f1115;--card:#1a1d24;--line:#2a2f3a;--fg:#e7e9ee;--mut:#9aa3b2;
+        --acc:#4f8cff;--ok:#2ecc71;--warn:#f1c40f;--bad:#e74c3c;--live:#ff5c5c;}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+  header{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:5}
+  .brand{color:var(--acc);font-weight:700;margin-right:auto;font-size:16px}
+  main{max-width:1080px;margin:20px auto;padding:0 18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px}
+  h2{font-size:15px;margin:0 0 12px}
+  label{display:block;color:var(--mut);font-size:12px;margin:8px 0 3px}
+  input,select{width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:#11141a;color:var(--fg)}
+  .row{display:flex;gap:12px;flex-wrap:wrap}.row>div{flex:1;min-width:130px}
+  button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer}
+  button.ghost{background:#11141a;border:1px solid var(--line);color:var(--fg)}
+  button.bad{background:var(--bad)}button.ok{background:var(--ok)}
+  button[disabled]{opacity:.45;cursor:not-allowed}
+  .pill{padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
+  .queued,.preparing,.sending{background:rgba(79,140,255,.16);color:var(--acc)}
+  .ready{background:rgba(241,196,15,.16);color:var(--warn)}
+  .needs_input{background:rgba(241,196,15,.16);color:var(--warn)}
+  .sent,.done{background:rgba(46,204,113,.16);color:var(--ok)}
+  .sent_unverified{background:rgba(241,196,15,.2);color:var(--warn)}
+  .failed,.error,.cancelled,.skipped{background:rgba(231,76,60,.16);color:var(--bad)}
+  .running,.awaiting_confirm{background:rgba(79,140,255,.16);color:var(--acc)}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top}
+  th{color:var(--mut);font-weight:600}
+  .mut{color:var(--mut)}.mono{font-variant-numeric:tabular-nums}
+  .mode{display:flex;align-items:center;gap:8px;font-size:12px}
+  .switch{width:46px;height:24px;border-radius:20px;background:#333;position:relative;cursor:pointer;transition:.2s}
+  .switch.on{background:var(--live)}
+  .switch .k{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s}
+  .switch.on .k{left:24px}
+  .armed{color:var(--live);font-weight:700}
+  .counts{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+  .funnel{display:flex;gap:6px;flex-wrap:wrap;font-size:12px}
+  .funnel span{background:#11141a;border:1px solid var(--line);border-radius:7px;padding:3px 8px}
+  .revcard{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+  .revcard.needs_input{border-color:rgba(241,196,15,.4)}
+  .kv{font-size:12px;color:var(--mut);margin:2px 0}
+  .kv b{color:var(--fg);font-weight:600}
+  a.link{color:var(--acc)}
+  .hide{display:none}
+  .banner{padding:9px 13px;border-radius:8px;margin-bottom:12px;font-size:13px}
+  .banner.warn{background:rgba(241,196,15,.1);border:1px solid rgba(241,196,15,.35)}
+  .banner.live{background:rgba(255,92,92,.1);border:1px solid rgba(255,92,92,.4)}
+  .toast{position:fixed;bottom:18px;right:18px;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:10px 14px;font-size:13px;z-index:20}
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">⚡ CV Sender v2</span>
+  <div class="mode">Dry <div class="switch" id="modeSw"><div class="k"></div></div>
+    <span id="modeLbl">Dry run</span></div>
+  <button class="bad hide" id="cancelBtn">Cancel run</button>
+</header>
+<main>
+  <div id="dryBanner" class="banner warn">🧪 <b>Dry run</b> — the tool fills forms and shows you exactly what it would send, but never submits. Flip the switch to arm LIVE.</div>
+  <div id="liveBanner" class="banner live hide">🔴 <b>LIVE</b> — confirming an item submits a <b>real</b> application.</div>
+
+  <div class="card" id="profileCard">
+    <h2>Profile &amp; CV</h2>
+    <div class="row">
+      <div><label>Full name</label><input id="p_full"></div>
+      <div><label>Email</label><input id="p_email"></div>
+      <div><label>Phone</label><input id="p_phone"></div>
+    </div>
+    <div class="row">
+      <div><label>LinkedIn URL</label><input id="p_linkedin"></div>
+      <div><label>GitHub URL</label><input id="p_github"></div>
+      <div><label>Location</label><input id="p_location" value="Israel"></div>
+    </div>
+    <div class="row" style="margin-top:10px;align-items:center">
+      <div style="flex:2">
+        <label>CV (PDF)</label>
+        <input type="file" id="p_cv" accept="application/pdf">
+        <div class="kv" id="cvStatus">No CV uploaded yet.</div>
+      </div>
+      <div style="max-width:160px;align-self:flex-end"><button id="saveProfile">Save profile</button></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Run</h2>
+    <div class="row">
+      <div><label>Geography</label>
+        <select id="r_geo"><option value="israel_remote">Israel + remote</option>
+          <option value="israel_only">Israel only</option><option value="anywhere">Anywhere</option></select></div>
+      <div><label>Strictness</label>
+        <select id="r_strict"><option value="loose">Loose</option>
+          <option value="balanced" selected>Balanced</option><option value="strict">Strict</option></select></div>
+      <div><label>Max to prepare</label><input type="number" id="r_cap" value="20" min="1" max="100"></div>
+      <div style="align-self:flex-end"><button id="prepareBtn">▶ Prepare</button></div>
+    </div>
+    <div class="counts" id="counts"></div>
+    <div class="funnel" id="funnel"></div>
+    <div class="kv" id="statusLine"></div>
+  </div>
+
+  <div class="card" id="reviewCard" hidden>
+    <h2>Review &amp; confirm <span id="reviewCount" class="mut"></span></h2>
+    <div id="reviewBar" style="margin-bottom:10px"></div>
+    <div id="review"></div>
+  </div>
+
+  <div class="card" id="liveCard" hidden>
+    <h2>Live progress</h2>
+    <table><thead><tr><th>Company</th><th>Role</th><th>Score</th><th>State</th><th>Detail</th></tr></thead>
+      <tbody id="items"></tbody></table>
+  </div>
+
+  <div class="card">
+    <h2>Source health</h2>
+    <div id="health" class="mut" style="font-size:12px">Run a prepare to see per-board fetch status.</div>
+  </div>
+</main>
+<div id="toast" class="toast hide"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
