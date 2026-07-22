@@ -23,6 +23,17 @@ def _norm(s):
     return (s or "").translate({ord(c): None for c in _BIDI}).strip().lower()
 
 
+# level key -> Hebrew label in the proficiency dropdown (used when a language
+# entry supplies "level" instead of a raw "proficiency" value).
+LEVELS = {
+    "elementary": "מיומנות בסיסית",
+    "limited": "מיומנות מוגבלת לשימוש בעבודה",
+    "professional": "מיומנות מקצועית",
+    "full": "מיומנות מקצועית מלאה",
+    "native": "מיומנות כשפת אם או דו-לשוני",
+}
+
+
 def _save(page):
     for b in page.query_selector_all("button"):
         try:
@@ -68,7 +79,10 @@ def add_one(page, url_slug, lang):
             break
     if prof_sel:
         try:
-            prof_sel.select_option(value=lang["proficiency"])
+            if lang.get("level"):
+                prof_sel.select_option(label=LEVELS[lang["level"]])
+            else:
+                prof_sel.select_option(value=lang["proficiency"])
         except Exception:
             pass
     time.sleep(0.4)
@@ -79,7 +93,9 @@ def add_one(page, url_slug, lang):
 
 def main(profile_slug, url_slug, languages_json):
     langs = json.loads(Path(languages_json).read_text(encoding="utf-8"))
-    profile_dir = ROOT / "data" / "li_profiles" / profile_slug
+    # "default"/"-" -> the original profile dir (Yonatan's), resolved in browser.py
+    profile_dir = (None if profile_slug in ("default", "-")
+                   else ROOT / "data" / "li_profiles" / profile_slug)
     results = []
     for lang in langs:
         with sync_playwright() as p:

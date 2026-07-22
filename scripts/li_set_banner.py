@@ -36,22 +36,26 @@ def _click_primary(page, words):
 
 
 def main(profile_slug, banner_png):
-    profile_dir = ROOT / "data" / "li_profiles" / profile_slug
+    # "default"/"-" -> the original profile dir (Yonatan's), resolved in browser.py
+    profile_dir = (None if profile_slug in ("default", "-")
+                   else ROOT / "data" / "li_profiles" / profile_slug)
+    tag = "yonatan" if profile_slug in ("default", "-") else profile_slug
     banner = str(Path(banner_png).resolve())
     with sync_playwright() as p:
         ctx = browser.launch_persistent(p, headless=False, user_data_dir=profile_dir)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto("https://www.linkedin.com/in/me/", wait_until="domcontentloaded", timeout=45000)
         time.sleep(6)
-        # open the background-photo menu
-        opened = False
+        # Locate the background-photo control. On some accounts it opens the
+        # native file chooser directly; on others a menu/modal appears first.
+        cam = None
         for b in page.query_selector_all("button"):
             al = _norm(b.get_attribute("aria-label"))
             if "רקע" in al and b.is_visible():
-                b.click(); opened = True; break
-        if not opened:
+                cam = b
+                break
+        if not cam:
             print("RESULT banner: camera button not found"); ctx.close(); return
-        time.sleep(2)
 
         def find_text(words, sels=("[role='menuitem']", "button", "a", "div[role='button']")):
             for sel in sels:
@@ -63,24 +67,33 @@ def main(profile_slug, banner_png):
                         continue
             return None
 
-        # camera -> menu item 'הוספת תמונת כריכה' -> modal with 'העלאת תמונה בודדת'
-        upload_btn = find_text(["העלאת תמונה", "העלאת", "upload"])
-        if not upload_btn:
-            menu = find_text(["כריכה"])
-            if menu:
-                menu.click()
-                time.sleep(3)
-            upload_btn = find_text(["העלאת תמונה", "העלאת", "upload"])
-        if not upload_btn:
-            print("RESULT banner: upload button not found"); ctx.close(); return
-        try:
-            with page.expect_file_chooser(timeout=15000) as fc:
-                upload_btn.click()
+        picked = False
+        try:  # direct: the control itself opens the chooser
+            with page.expect_file_chooser(timeout=8000) as fc:
+                cam.click()
             fc.value.set_files(banner)
-        except Exception as e:
-            print(f"RESULT banner: file chooser failed: {e}"[:120]); ctx.close(); return
+            picked = True
+        except Exception:
+            pass
+        if not picked:  # fallback: menu item 'כריכה' -> 'העלאת תמונה'
+            time.sleep(2)
+            upload_btn = find_text(["העלאת תמונה", "העלאת", "upload"])
+            if not upload_btn:
+                menu = find_text(["כריכה"])
+                if menu:
+                    menu.click()
+                    time.sleep(3)
+                upload_btn = find_text(["העלאת תמונה", "העלאת", "upload"])
+            if not upload_btn:
+                print("RESULT banner: upload control not found"); ctx.close(); return
+            try:
+                with page.expect_file_chooser(timeout=15000) as fc:
+                    upload_btn.click()
+                fc.value.set_files(banner)
+            except Exception as e:
+                print(f"RESULT banner: file chooser failed: {e}"[:120]); ctx.close(); return
         time.sleep(4)
-        page.screenshot(path=str(ROOT / "data/screenshots/shani_banner_editor.png"))
+        page.screenshot(path=str(ROOT / f"data/screenshots/{tag}_banner_editor.png"))
         # apply/save in the editor (may take two clicks: Apply then Save)
         _click_primary(page, ["החל", "apply", "שמיר", "save"])
         time.sleep(2)
@@ -88,8 +101,8 @@ def main(profile_slug, banner_png):
         time.sleep(4)
         page.goto("https://www.linkedin.com/in/me/", wait_until="domcontentloaded", timeout=45000)
         time.sleep(3)
-        page.screenshot(path=str(ROOT / "data/screenshots/shani_banner_done.png"))
-        print("RESULT banner: uploaded (see shani_banner_done.png)")
+        page.screenshot(path=str(ROOT / f"data/screenshots/{tag}_banner_done.png"))
+        print(f"RESULT banner: uploaded (see {tag}_banner_done.png)")
         ctx.close()
 
 
