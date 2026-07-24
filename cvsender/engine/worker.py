@@ -176,7 +176,8 @@ async def run_send(run_id: int, cancel) -> None:
     and perform the one irreversible submit, then verify. Strictly sequential +
     rate-limited (ban safety); late confirms are picked up in the same drain."""
     profile = store.get_profile()
-    adapters = build_adapters({"channels": ["greenhouse"]})
+    from ..channels.registry import IMPLEMENTED
+    adapters = build_adapters({"channels": list(IMPLEMENTED)})
     store.update_run(run_id, status="sending", phase="send")
     import random
     async with browser_context(headless=False) as ctx:

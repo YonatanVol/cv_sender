@@ -151,6 +151,14 @@ def run_snapshot(run_id: int):
 async def cancel_run(run_id: int, request: Request):
     _check_origin(request)
     manager.request_cancel(run_id)
+    # If no worker is active (e.g. the run is parked in awaiting_confirm), the
+    # worker can't finalize it — close it here so a new run can start.
+    run = store.get_run(run_id)
+    if run and run["status"] == "awaiting_confirm" and not manager.busy():
+        store.update_run(run_id, status="cancelled", finished_at=time.time(),
+                         message="Closed by user")
+        store.add_event(run_id, "run.state", "cancelled",
+                        data={"status": "cancelled"})
     return JSONResponse({"ok": True}, status_code=202)
 
 
