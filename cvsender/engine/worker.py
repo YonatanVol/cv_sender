@@ -26,13 +26,14 @@ def _job_from_item(it: dict) -> Job:
               apply_url=it.get("apply_url") or "")
 
 
-async def run_prepare(run_id: int, options: dict, cancel) -> None:
-    """PREPARE phase: discover -> score -> dedupe -> fill each (never sends)."""
-    mode = options.get("mode", "dry")
-    geography = options.get("geography", "israel_remote")
-    strictness = options.get("strictness", "balanced")
-    cap = int(options.get("cap", 20))
+ATS_CHANNELS = {"greenhouse", "lever", "ashby", "comeet"}
 
+
+async def run_prepare(run_id: int, options: dict, cancel) -> None:
+    """PREPARE phase: discover -> score -> dedupe -> fill each (never sends).
+    ATS channels run in a fast ephemeral browser; LinkedIn runs in the persistent
+    logged-in context."""
+    cap = int(options.get("cap", 20))
     profile = store.get_profile()
     if not profile or not profile.get("email"):
         store.update_run(run_id, status="error",
@@ -41,28 +42,46 @@ async def run_prepare(run_id: int, options: dict, cancel) -> None:
         _emit(run_id, "run.error", "profile incomplete", level="error")
         return
     cv_path = profile.get("cv_path") or ""
+    enabled = set(options.get("channels", ["greenhouse"]))
+    remaining = cap
 
-    adapters = build_adapters(options)
-    if not adapters:
-        store.update_run(run_id, status="error",
-                         message="No implemented channel enabled.",
-                         finished_at=time.time())
-        return
+    try:
+        if enabled & ATS_CHANNELS:
+            remaining = await _prepare_ats(run_id, options, cancel, remaining,
+                                           profile, cv_path,
+                                           list(enabled & ATS_CHANNELS))
+        if "linkedin" in enabled and remaining > 0:
+            await _prepare_linkedin(run_id, options, cancel, remaining, profile,
+                                    cv_path)
+    except Cancelled:
+        raise
 
-    # ---- discover ----
+    counts = store.item_counts(run_id)
+    ready, ni = counts.get("ready", 0), counts.get("needs_input", 0)
+    status = "awaiting_confirm" if (ready or ni) else "done"
+    store.update_run(run_id, status=status, phase="send",
+                     message=f"Prepared: {ready} ready · {ni} need input · "
+                             f"{counts.get('failed', 0)} failed",
+                     finished_at=(time.time() if status == "done" else None))
+    _emit(run_id, "run.state", status, data={"status": status, "counts": counts})
+
+
+async def _prepare_ats(run_id, options, cancel, cap, profile, cv_path,
+                       channels) -> int:
+    geography = options.get("geography", "israel_remote")
+    strictness = options.get("strictness", "balanced")
+    adapters = build_adapters({**options, "channels": channels})
+
     _emit(run_id, "phase", "Discovering jobs…")
-    spec: dict = dict(options)
-    spec["_cancel"] = cancel
+    spec: dict = {**options, "_cancel": cancel}
     all_jobs: list[Job] = []
-    for name, adapter in adapters.items():
+    for adapter in adapters.values():
         cancel.check()
-        jobs = await adapter.discover(spec)
-        all_jobs.extend(jobs)
+        all_jobs.extend(await adapter.discover(spec))
     for key, h in (spec.get("_health") or {}).items():
         _emit(run_id, "source.health", key, data={"key": key, **h})
     store.heartbeat(run_id)
 
-    # ---- score + dedupe ----
     funnel = {"fetched": len(all_jobs), "role": 0, "geography": 0, "score": 0,
               "deduped": 0, "kept": 0}
     kept: list[dict] = []
@@ -80,11 +99,18 @@ async def run_prepare(run_id: int, options: dict, cancel) -> None:
 
     kept.sort(key=lambda k: k["score"], reverse=True)
     selected = kept[:cap]
-    _emit(run_id, "phase",
-          f"{len(all_jobs)} fetched · {funnel['kept']} relevant · preparing "
-          f"top {len(selected)}")
+    _emit(run_id, "phase", f"{len(all_jobs)} fetched · {funnel['kept']} relevant "
+                           f"· preparing top {len(selected)}")
 
-    item_ids: list[int] = []
+    added = _add_items(run_id, selected)
+    if added:
+        async with browser_context(headless=True) as ctx:
+            await _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path)
+    return max(0, cap - added)
+
+
+def _add_items(run_id, selected) -> int:
+    n = 0
     for k in selected:
         job = k["job"]
         iid = store.add_item(run_id, {
@@ -92,51 +118,70 @@ async def run_prepare(run_id: int, options: dict, cancel) -> None:
             "location": job.location, "url": job.url, "apply_url": job.apply_url,
             "dedupe_key": job.dedupe_key, "content_hash": job.content_hash,
             "score": k["score"], "score_json": {"signals": k["signals"]},
-            "state": "queued",
-        })
+            "state": "queued"})
         if iid:
-            item_ids.append(iid)
+            n += 1
             _emit(run_id, "item.new", job.title, item_id=iid,
                   data={"company": job.company, "title": job.title,
                         "channel": job.channel, "score": k["score"],
                         "state": "queued"})
+    return n
 
-    # ---- prepare each queued item ----
-    if item_ids:
-        async with browser_context(headless=True) as ctx:
-            while True:
-                cancel.check()
-                store.heartbeat(run_id)
-                it = store.next_queued(run_id)
-                if not it:
-                    break
-                if not store.transition_item(it["id"], ["queued"], "preparing"):
-                    continue
-                _emit(run_id, "item.state", "preparing", item_id=it["id"],
-                      data={"state": "preparing"})
-                adapter = adapters.get(it["channel"])
-                job = _job_from_item(it)
-                try:
-                    res = await adapter.prepare(ctx, job, profile, cv_path, cancel)
-                except Cancelled:
-                    store.transition_item(it["id"], ["preparing"], "queued")
-                    raise
-                except Exception as e:
-                    res = None
-                    _emit(run_id, "item.error", str(e)[:160], item_id=it["id"],
-                          level="error")
-                _apply_prepare_result(run_id, it, res, cv_path, profile)
-                await cancel.sleep(config.PREPARE_DELAY_S)
 
-    counts = store.item_counts(run_id)
-    ready = counts.get("ready", 0)
-    ni = counts.get("needs_input", 0)
-    status = "awaiting_confirm" if (ready or ni) else "done"
-    store.update_run(run_id, status=status, phase="send",
-                     message=f"Prepared: {ready} ready · {ni} need input · "
-                             f"{counts.get('failed', 0)} failed",
-                     finished_at=(time.time() if status == "done" else None))
-    _emit(run_id, "run.state", status, data={"status": status, "counts": counts})
+async def _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path):
+    while True:
+        cancel.check()
+        store.heartbeat(run_id)
+        it = store.next_queued(run_id)
+        if not it:
+            break
+        if not store.transition_item(it["id"], ["queued"], "preparing"):
+            continue
+        _emit(run_id, "item.state", "preparing", item_id=it["id"],
+              data={"state": "preparing"})
+        adapter = adapters.get(it["channel"])
+        job = _job_from_item(it)
+        try:
+            res = await adapter.prepare(ctx, job, profile, cv_path, cancel)
+        except Cancelled:
+            store.transition_item(it["id"], ["preparing"], "queued")
+            raise
+        except Exception as e:
+            res = None
+            _emit(run_id, "item.error", str(e)[:160], item_id=it["id"],
+                  level="error")
+        _apply_prepare_result(run_id, it, res, cv_path, profile)
+        await cancel.sleep(config.PREPARE_DELAY_S)
+
+
+async def _prepare_linkedin(run_id, options, cancel, cap, profile, cv_path):
+    from ..channels.linkedin import LinkedInChannel
+    from .browser import persistent_context
+    geography = options.get("geography", "israel_remote")
+    strictness = options.get("strictness", "balanced")
+    li = LinkedInChannel()
+
+    _emit(run_id, "phase", "Opening LinkedIn…")
+    async with persistent_context(headless=False) as ctx:
+        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        if not await li.logged_in(page):
+            _emit(run_id, "run.error",
+                  "LinkedIn not logged in — log in once, then re-run.",
+                  level="warn")
+            return
+        _emit(run_id, "phase", "Searching LinkedIn Easy Apply roles…")
+        jobs = await li.discover(page, geography)
+        kept = []
+        for job in jobs:
+            v = score_job(job, mode=geography, strictness=strictness)
+            if not v.keep:
+                continue
+            if store.already_sent(job.dedupe_key, job.content_hash):
+                continue
+            kept.append({"job": job, "score": v.score, "signals": v.signals})
+        kept.sort(key=lambda k: k["score"], reverse=True)
+        _add_items(run_id, kept[:cap])
+        await _prepare_loop(run_id, ctx, {"linkedin": li}, cancel, profile, cv_path)
 
 
 def _apply_prepare_result(run_id, it, res, cv_path, profile):
@@ -180,7 +225,11 @@ async def run_send(run_id: int, cancel) -> None:
     adapters = build_adapters({"channels": list(IMPLEMENTED)})
     store.update_run(run_id, status="sending", phase="send")
     import random
-    async with browser_context(headless=False) as ctx:
+    from contextlib import AsyncExitStack
+    from .browser import persistent_context
+    from ..channels.linkedin import LinkedInChannel
+    ephemeral = persistent = None
+    async with AsyncExitStack() as stack:
         while True:
             try:
                 cancel.check()
@@ -208,7 +257,17 @@ async def run_send(run_id: int, cancel) -> None:
                       data={"state": "needs_input", "reason": bad})
                 continue
 
-            adapter = adapters.get(it["channel"])
+            # Route to the right context: LinkedIn needs the logged-in profile.
+            if it["channel"] == "linkedin":
+                if persistent is None:
+                    persistent = await stack.enter_async_context(
+                        persistent_context(headless=False))
+                ctx, adapter = persistent, LinkedInChannel()
+            else:
+                if ephemeral is None:
+                    ephemeral = await stack.enter_async_context(
+                        browser_context(headless=False))
+                ctx, adapter = ephemeral, adapters.get(it["channel"])
             try:
                 res = await adapter.send(ctx, handle, cancel)
             except Cancelled:
