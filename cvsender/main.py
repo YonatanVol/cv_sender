@@ -172,9 +172,22 @@ async def confirm_item(run_id: int, item_id: int, request: Request):
         raise HTTPException(409, "item not in a ready state (already sent/queued?)")
     store.add_event(run_id, "item.state", "sending", item_id=item_id,
                     data={"state": "sending"})
-    if not manager.busy():
-        manager.start_send(run_id)
+    _ensure_send_worker(run_id)
     return JSONResponse({"ok": True}, status_code=202)
+
+
+def _ensure_send_worker(run_id: int) -> None:
+    """Start the send worker if there are items to send and none is running.
+    Retries briefly so a confirm that races the prepare-thread teardown still
+    launches the sender (fixes items getting stuck in 'sending')."""
+    if not store.list_items(run_id, ["sending"]):
+        return
+    for _ in range(20):                      # ~2s of retries past teardown
+        if manager.start_send(run_id):
+            return
+        if store.get_active_run() and store.get_active_run()["status"] == "sending":
+            return                           # a sender is already draining
+        time.sleep(0.1)
 
 
 @app.post("/api/runs/{run_id}/confirm-all")
@@ -190,8 +203,8 @@ async def confirm_all(run_id: int, request: Request):
             store.add_event(run_id, "item.state", "sending", item_id=it["id"],
                             data={"state": "sending"})
             n += 1
-    if n and not manager.busy():
-        manager.start_send(run_id)
+    if n:
+        _ensure_send_worker(run_id)
     return JSONResponse({"confirmed": n}, status_code=202)
 
 

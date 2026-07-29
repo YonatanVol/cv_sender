@@ -20,7 +20,12 @@ from .base import (READY, NEEDS_INPUT, FAILED, SENT, SEND_FAILED,
 SEARCH = "https://www.linkedin.com/jobs/search/"
 QUERIES = ["junior software developer", "student software developer",
            "software developer intern", "junior software engineer",
-           "entry level software engineer"]
+           "entry level software engineer", "junior full stack developer",
+           "junior backend developer", "junior frontend developer",
+           "junior python developer", "junior react developer",
+           "junior web developer", "junior data analyst",
+           "junior qa engineer", "associate software engineer",
+           "graduate software engineer", "junior developer"]
 
 NEXT = ["Continue to next step", "Next", "המשך", "המשך לשלב הבא"]
 REVIEW = ["Review your application", "Review", "בדיקת המועמדות", "סקירה"]
