@@ -100,6 +100,35 @@ MIGRATIONS: list[str] = [
     CREATE INDEX idx_apps_content     ON applications(content_hash);
     CREATE INDEX idx_appev_app        ON app_events(application_id, at);
     """,
+
+    # 002 — answer bank (learn a screening answer once, reuse forever),
+    # user-confirmed sends, and daily send counters for the daily target/caps.
+    """
+    CREATE TABLE answer_bank (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        qkey TEXT NOT NULL UNIQUE,     -- normalized question text
+        question TEXT,                 -- original label, for display
+        answer TEXT NOT NULL,
+        kind TEXT DEFAULT 'text',
+        uses INTEGER NOT NULL DEFAULT 0,
+        created_at REAL, updated_at REAL
+    );
+    CREATE INDEX idx_answers_qkey ON answer_bank(qkey);
+
+    -- Daily counters: enforce per-channel caps + the daily target.
+    CREATE TABLE daily_counts (
+        day TEXT NOT NULL,             -- YYYY-MM-DD (local)
+        channel TEXT NOT NULL,
+        sent INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (day, channel)
+    );
+
+    -- Assist tracking. run_items.state has a CHECK constraint that can't be
+    -- altered in place (and other tables FK to it), so "handed to the human"
+    -- is a nullable column rather than a new state: the item stays in
+    -- needs_input/failed and assist_at marks that it is in the burst queue.
+    ALTER TABLE run_items ADD COLUMN assist_at REAL;
+    """,
 ]
 
 

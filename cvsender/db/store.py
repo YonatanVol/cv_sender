@@ -252,6 +252,109 @@ def already_sent(dedupe_key: str, content_hash: Optional[str] = None) -> bool:
         return False
 
 
+# --------------------------- answer bank -----------------------------------
+
+def normalize_question(q: str) -> str:
+    """Stable key for a screening question: lowercase, collapse whitespace and
+    punctuation so trivial wording/format differences still hit the same entry."""
+    import re
+    s = (q or "").strip().lower()
+    s = re.sub(r"[\*‎‏]", "", s)
+    s = re.sub(r"[^\w\s֐-׿]+", " ", s)   # keep Hebrew letters
+    s = re.sub(r"\s+", " ", s).strip()
+    return s[:200]
+
+
+def learn_answer(question: str, answer: str, kind: str = "text") -> None:
+    """Remember one screening answer so it is auto-filled forever after.
+
+    Refuses to store credentials / government IDs / financial details even if
+    they are submitted — those must never be persisted or replayed into a form.
+    """
+    from ..engine.answerbank import is_prohibited
+    if is_prohibited(question):
+        return
+    qkey = normalize_question(question)
+    if not qkey or answer is None or answer == "":
+        return
+    now = _now()
+    with tx() as c:
+        c.execute(
+            "INSERT INTO answer_bank (qkey, question, answer, kind, uses, "
+            "created_at, updated_at) VALUES (?,?,?,?,0,?,?) "
+            "ON CONFLICT(qkey) DO UPDATE SET answer=excluded.answer, "
+            "kind=excluded.kind, updated_at=excluded.updated_at",
+            (qkey, question, answer, kind, now, now))
+
+
+def recall_answer(question: str) -> Optional[str]:
+    qkey = normalize_question(question)
+    if not qkey:
+        return None
+    with ro() as c:
+        r = c.execute("SELECT answer FROM answer_bank WHERE qkey=?",
+                      (qkey,)).fetchone()
+        return r["answer"] if r else None
+
+
+def bump_answer_use(question: str) -> None:
+    with tx() as c:
+        c.execute("UPDATE answer_bank SET uses=uses+1 WHERE qkey=?",
+                  (normalize_question(question),))
+
+
+def list_answers() -> list[dict]:
+    with ro() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM answer_bank ORDER BY uses DESC, updated_at DESC")]
+
+
+# --------------------------- daily counters --------------------------------
+
+def _today() -> str:
+    return time.strftime("%Y-%m-%d", time.localtime())
+
+
+def bump_daily(channel: str) -> None:
+    with tx() as c:
+        c.execute(
+            "INSERT INTO daily_counts (day, channel, sent) VALUES (?,?,1) "
+            "ON CONFLICT(day, channel) DO UPDATE SET sent = sent + 1",
+            (_today(), channel))
+
+
+def sent_today(channel: Optional[str] = None) -> int:
+    with ro() as c:
+        if channel:
+            r = c.execute("SELECT sent FROM daily_counts WHERE day=? AND channel=?",
+                          (_today(), channel)).fetchone()
+            return r["sent"] if r else 0
+        r = c.execute("SELECT COALESCE(SUM(sent),0) n FROM daily_counts WHERE day=?",
+                      (_today(),)).fetchone()
+        return r["n"] if r else 0
+
+
+# --------------------------- assist queue ----------------------------------
+
+def assist_queue(limit: int = 200) -> list[dict]:
+    """Everything a human could finish right now: filled-but-blocked items,
+    newest first, excluding anything already sent (dedupe by key)."""
+    with ro() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT i.* FROM run_items i "
+            "WHERE i.state IN ('needs_input','failed','ready') "
+            "  AND NOT EXISTS (SELECT 1 FROM applications a "
+            "                  WHERE a.dedupe_key = i.dedupe_key) "
+            "GROUP BY i.dedupe_key "
+            "ORDER BY (i.state='ready') DESC, i.score DESC, i.id DESC LIMIT ?",
+            (limit,)).fetchall()]
+
+
+def mark_assist(item_id: int) -> None:
+    with tx() as c:
+        c.execute("UPDATE run_items SET assist_at=? WHERE id=?", (_now(), item_id))
+
+
 def record_application(item: dict, evidence: str) -> int:
     """Idempotent terminal write — only call with real confirmation evidence."""
     now = _now()

@@ -58,6 +58,12 @@ def index():
     return FileResponse(str(WEB / "index.html"))
 
 
+@app.get("/assist")
+def assist_page():
+    """Burst mode: clear blocked applications fast (also the PWA start_url)."""
+    return FileResponse(str(WEB / "assist.html"))
+
+
 # ------------------------------ profile ------------------------------------
 
 @app.get("/api/profile")
@@ -206,6 +212,84 @@ async def confirm_all(run_id: int, request: Request):
     if n:
         _ensure_send_worker(run_id)
     return JSONResponse({"confirmed": n}, status_code=202)
+
+
+# ------------------------- assist queue (throughput) ------------------------
+# The bot fills everything and parks blocked applications here; the human
+# clears them in seconds. This is what converts CAPTCHA / screening-question
+# items into real sends. No AI involved — pure state + links.
+
+@app.get("/api/assist")
+def assist_queue(limit: int = 200):
+    """Everything a human could finish right now, newest/best first."""
+    items = store.assist_queue(limit)
+    out = []
+    for it in items:
+        rj = json.loads(it.get("result_json") or "{}")
+        out.append({
+            "id": it["id"], "run_id": it["run_id"], "channel": it["channel"],
+            "company": it["company"], "title": it["title"],
+            "apply_url": it["apply_url"], "url": it["url"],
+            "state": it["state"], "reason": it["reason"], "score": it["score"],
+            "screenshot": it["screenshot_prepare"],
+            "cv_attached": rj.get("cv_attached", False),
+            "filled": [f.get("label") for f in rj.get("filled", [])],
+            "questions": rj.get("questions", []),
+        })
+    return JSONResponse({
+        "items": out,
+        "sent_today": store.sent_today(),
+        "counts": {"blocked": len(out)},
+    })
+
+
+@app.post("/api/items/{item_id}/mark-sent")
+async def mark_sent(item_id: int, request: Request):
+    """The human finished this application themselves (phone or browser).
+    Records a user-confirmed send so it counts, dedupes, and enters the Tracker."""
+    _check_origin(request)
+    it = store.get_item(item_id)
+    if not it:
+        raise HTTPException(404, "no such item")
+    if it["state"] == "sent":
+        return JSONResponse({"ok": True, "already": True})
+    evidence = json.dumps({"method": "user", "detail": "confirmed by user",
+                           "at": time.time()})
+    store.transition_item(item_id, ["needs_input", "failed", "ready",
+                                    "sending", "sent_unverified"], "sent",
+                          reason="sent (confirmed by you)",
+                          confirmation_evidence=evidence)
+    item = store.get_item(item_id)
+    store.record_application(item, evidence)
+    store.bump_daily(item["channel"])
+    store.add_event(it["run_id"], "item.state", "sent", item_id=item_id,
+                    data={"state": "sent", "evidence": "user"})
+    return JSONResponse({"ok": True, "sent_today": store.sent_today()})
+
+
+@app.post("/api/items/{item_id}/answers")
+async def save_answers(item_id: int, request: Request):
+    """Save screening answers. Learned once -> auto-filled on every future run,
+    which is what stops the same question blocking us again."""
+    _check_origin(request)
+    body = await request.json()
+    answers = body.get("answers") or {}
+    learned = 0
+    for question, answer in answers.items():
+        if not str(answer).strip():
+            continue
+        store.learn_answer(question, str(answer))
+        learned += 1
+    # Re-queue the item so the next prepare picks up the new answers.
+    if body.get("requeue", True):
+        store.transition_item(item_id, ["needs_input", "failed"], "queued",
+                              reason="answers saved — will retry")
+    return JSONResponse({"ok": True, "learned": learned})
+
+
+@app.get("/api/answers")
+def list_answers():
+    return JSONResponse({"answers": store.list_answers()})
 
 
 @app.post("/api/runs/{run_id}/items/{item_id}/skip")

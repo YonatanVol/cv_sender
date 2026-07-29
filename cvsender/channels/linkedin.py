@@ -35,6 +35,29 @@ DISCARD = ["Discard", "מחיקה", "מחק", "השלכה"]
 CHECKPOINT = ("/checkpoint", "/authwall", "/uas/login")
 
 
+async def _card_company(anchor) -> str:
+    """Pull the employer name off a search-result card so the UI shows the real
+    company instead of 'linkedin' on every row."""
+    try:
+        card = await anchor.evaluate_handle(
+            "el => el.closest('li, div.job-card-container, "
+            "div.base-card, [data-job-id]')")
+        if not card:
+            return ""
+        for sel in (".artdeco-entity-lockup__subtitle",
+                    ".job-card-container__primary-description",
+                    ".base-search-card__subtitle",
+                    "[class*='subtitle']"):
+            el = await card.as_element().query_selector(sel) if card.as_element() else None
+            if el:
+                txt = ((await el.inner_text()) or "").strip().split("\n")[0]
+                if txt:
+                    return txt[:60]
+    except Exception:
+        pass
+    return ""
+
+
 class LinkedInChannel:
     channel = "linkedin"
 
@@ -82,8 +105,9 @@ class LinkedInChannel:
                     if not jid or jid in seen:
                         continue
                     title = ((await a.inner_text()) or "").strip().split("\n")[0]
+                    company = await _card_company(a) or "LinkedIn"
                     seen[jid] = Job(
-                        channel="linkedin", company="linkedin",
+                        channel="linkedin", company=company,
                         external_id=jid, title=title or q, location=location,
                         url=f"https://www.linkedin.com/jobs/view/{jid}/",
                         apply_url=f"https://www.linkedin.com/jobs/view/{jid}/",
@@ -93,6 +117,7 @@ class LinkedInChannel:
         return list(seen.values())
 
     # ------------------------------ prepare -------------------------------
+    # (helper _card_company is module-level, below)
     async def prepare(self, ctx, job: Job, profile: dict, cv_path: str,
                       cancel) -> PrepareResult:
         page = await ctx.new_page()

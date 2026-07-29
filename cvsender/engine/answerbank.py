@@ -58,10 +58,24 @@ def match_text_field(field_key: str) -> str | None:
 
 def known_answer(question: str, profile: dict) -> str | None:
     """Answer a common yes/no or EEO screening question, or None if we won't
-    guess (which routes it to needs_input for the human)."""
+    guess (which routes it to needs_input for the human).
+
+    Order: never answer prohibited fields → a previously LEARNED answer (the
+    human answered this exact question before) → built-in rules. Pure lookup +
+    rules; no AI, so a send costs nothing."""
     q = (question or "").lower()
     if is_prohibited(q):
         return None
+
+    # Learned answers win: the human already told us this once.
+    try:
+        from ..db import store
+        learned = store.recall_answer(question)
+        if learned:
+            store.bump_answer_use(question)
+            return learned
+    except Exception:
+        pass  # DB unavailable -> fall back to rules
     authorized = bool(profile.get("work_authorized_il", 1))
     needs_sponsorship = bool(profile.get("needs_sponsorship", 0))
 
