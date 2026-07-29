@@ -178,9 +178,27 @@ async function confirmAll() {
 function esc(s) { return (s ?? '').toString().replace(/[&<>"]/g, c =>
   ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
+// ---- assist queue badge: surface finishable applications up front ----
+async function refreshAssist() {
+  try {
+    const d = await api('GET', '/api/assist?limit=500');
+    const n = d.counts.blocked;
+    const el = $('assistBanner');
+    if (n > 0) {
+      el.innerHTML = `⚡ <b>${n} application${n > 1 ? 's' : ''} ready to finish</b>` +
+        ` — already filled with your CV. Tap to send them →` +
+        (d.sent_today ? `  <span class="mut">(${d.sent_today} sent today)</span>` : '');
+      el.classList.remove('hide');
+    } else { el.classList.add('hide'); }
+    $('assistLink').textContent = n ? `⚡ Assist (${n})` : '⚡ Assist';
+  } catch {}
+}
+
 // ---- boot: hydrate any active run ----
 (async () => {
   await loadProfile();
+  refreshAssist();
+  setInterval(refreshAssist, 15000);
   try {
     const a = await api('GET', '/api/runs/active');
     if (a && a.id) {

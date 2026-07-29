@@ -57,11 +57,15 @@
 <body>
 <header>
   <span class="brand">⚡ CV Sender v2</span>
+  <a href="/assist" style="color:var(--warn);text-decoration:none;font-weight:700"
+     id="assistLink">⚡ Assist</a>
   <div class="mode">Dry <div class="switch" id="modeSw"><div class="k"></div></div>
     <span id="modeLbl">Dry run</span></div>
   <button class="bad hide" id="cancelBtn">Cancel run</button>
 </header>
 <main>
+  <a href="/assist" id="assistBanner" class="banner warn hide"
+     style="display:block;text-decoration:none;color:inherit"></a>
   <div id="dryBanner" class="banner warn">🧪 <b>Dry run</b> — the tool fills forms and shows you exactly what it would send, but never submits. Flip the switch to arm LIVE.</div>
   <div id="liveBanner" class="banner live hide">🔴 <b>LIVE</b> — confirming an item submits a <b>real</b> application.</div>
 
