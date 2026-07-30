@@ -12,7 +12,7 @@ from ..channels.registry import build_adapters
 from ..core.cancel import Cancelled
 from ..db import store
 from ..funnel.scoring import score_job
-from .browser import browser_context
+from .session import session
 
 
 def _emit(run_id, type, message="", item_id=None, level="info", data=None):
@@ -104,8 +104,8 @@ async def _prepare_ats(run_id, options, cancel, cap, profile, cv_path,
 
     added = _add_items(run_id, selected)
     if added:
-        async with browser_context(headless=True) as ctx:
-            await _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path)
+        ctx = await session.ats_context(headless=True)   # reused across runs
+        await _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path)
     return max(0, cap - added)
 
 
@@ -156,32 +156,32 @@ async def _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path):
 
 async def _prepare_linkedin(run_id, options, cancel, cap, profile, cv_path):
     from ..channels.linkedin import LinkedInChannel
-    from .browser import persistent_context
     geography = options.get("geography", "israel_remote")
     strictness = options.get("strictness", "balanced")
+    headless = not options.get("show_browser", False)
     li = LinkedInChannel()
 
     _emit(run_id, "phase", "Opening LinkedIn…")
-    async with persistent_context(headless=False) as ctx:
-        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
-        if not await li.logged_in(page):
-            _emit(run_id, "run.error",
-                  "LinkedIn not logged in — log in once, then re-run.",
-                  level="warn")
-            return
-        _emit(run_id, "phase", "Searching LinkedIn Easy Apply roles…")
-        jobs = await li.discover(page, geography)
-        kept = []
-        for job in jobs:
-            v = score_job(job, mode=geography, strictness=strictness)
-            if not v.keep:
-                continue
-            if store.already_sent(job.dedupe_key, job.content_hash):
-                continue
-            kept.append({"job": job, "score": v.score, "signals": v.signals})
-        kept.sort(key=lambda k: k["score"], reverse=True)
-        _add_items(run_id, kept[:cap])
-        await _prepare_loop(run_id, ctx, {"linkedin": li}, cancel, profile, cv_path)
+    # Reused persistent context — headless by default (no window per run).
+    ctx = await session.linkedin_context(headless=headless)
+    page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+    if not await li.logged_in(page):
+        _emit(run_id, "run.error",
+              "LinkedIn not logged in — log in once, then re-run.", level="warn")
+        return
+    _emit(run_id, "phase", "Searching LinkedIn Easy Apply roles…")
+    jobs = await li.discover(page, geography)
+    kept = []
+    for job in jobs:
+        v = score_job(job, mode=geography, strictness=strictness)
+        if not v.keep:
+            continue
+        if store.already_sent(job.dedupe_key, job.content_hash):
+            continue
+        kept.append({"job": job, "score": v.score, "signals": v.signals})
+    kept.sort(key=lambda k: k["score"], reverse=True)
+    _add_items(run_id, kept[:cap])
+    await _prepare_loop(run_id, ctx, {"linkedin": li}, cancel, profile, cv_path)
 
 
 def _apply_prepare_result(run_id, it, res, cv_path, profile):
@@ -225,66 +225,63 @@ async def run_send(run_id: int, cancel) -> None:
     adapters = build_adapters({"channels": list(IMPLEMENTED)})
     store.update_run(run_id, status="sending", phase="send")
     import random
-    from contextlib import AsyncExitStack
-    from .browser import persistent_context
     from ..channels.linkedin import LinkedInChannel
-    ephemeral = persistent = None
-    async with AsyncExitStack() as stack:
-        while True:
-            try:
-                cancel.check()
-            except Cancelled:
-                break
-            store.heartbeat(run_id)
-            it = store.next_in_state(run_id, "sending")
-            if not it:
-                break
-            iid = it["id"]
-            rj = json.loads(it.get("result_json") or "{}")
-            h = rj.get("handle") or {}
-            handle = SendHandle(
-                dedupe_key=h.get("dedupe_key", it["dedupe_key"]),
-                channel=it["channel"], apply_url=h.get("apply_url", it["apply_url"]),
-                company=h.get("company", ""), title=h.get("title", ""),
-                answers=h.get("answers", {}), cv_path=h.get("cv_path", ""),
-                cv_sha256=h.get("cv_sha256", ""))
+    show = bool(store.get_run(run_id).get("options_json") and
+                json.loads(store.get_run(run_id)["options_json"] or "{}")
+                .get("show_browser"))
+    while True:
+        try:
+            cancel.check()
+        except Cancelled:
+            break
+        store.heartbeat(run_id)
+        it = store.next_in_state(run_id, "sending")
+        if not it:
+            break
+        iid = it["id"]
+        rj = json.loads(it.get("result_json") or "{}")
+        h = rj.get("handle") or {}
+        handle = SendHandle(
+            dedupe_key=h.get("dedupe_key", it["dedupe_key"]),
+            channel=it["channel"], apply_url=h.get("apply_url", it["apply_url"]),
+            company=h.get("company", ""), title=h.get("title", ""),
+            answers=h.get("answers", {}), cv_path=h.get("cv_path", ""),
+            cv_sha256=h.get("cv_sha256", ""))
 
-            # CV-changed-between-prepare-and-send guard.
-            bad = _cv_guard(handle, profile)
-            if bad:
-                store.transition_item(iid, ["sending"], "needs_input", reason=bad)
-                _emit(run_id, "item.state", "needs_input", item_id=iid,
-                      data={"state": "needs_input", "reason": bad})
-                continue
+        # CV-changed-between-prepare-and-send guard.
+        bad = _cv_guard(handle, profile)
+        if bad:
+            store.transition_item(iid, ["sending"], "needs_input", reason=bad)
+            _emit(run_id, "item.state", "needs_input", item_id=iid,
+                  data={"state": "needs_input", "reason": bad})
+            continue
 
-            # Route to the right context: LinkedIn needs the logged-in profile.
-            if it["channel"] == "linkedin":
-                if persistent is None:
-                    persistent = await stack.enter_async_context(
-                        persistent_context(headless=False))
-                ctx, adapter = persistent, LinkedInChannel()
-            else:
-                if ephemeral is None:
-                    ephemeral = await stack.enter_async_context(
-                        browser_context(headless=False))
-                ctx, adapter = ephemeral, adapters.get(it["channel"])
-            try:
-                res = await adapter.send(ctx, handle, cancel)
-            except Cancelled:
-                _emit(run_id, "item.state", "sending", item_id=iid,
-                      data={"state": "sending",
-                            "reason": "cancel — verify this one manually"})
-                break
-            except Exception as e:
-                res = None
-                _emit(run_id, "item.error", str(e)[:160], item_id=iid, level="error")
+        # Route to the right reused context: LinkedIn needs the logged-in
+        # profile; ATS uses the shared ephemeral one. Both are kept alive by
+        # the session, so sending opens pages — not browsers.
+        if it["channel"] == "linkedin":
+            ctx = await session.linkedin_context(headless=not show)
+            adapter = LinkedInChannel()
+        else:
+            ctx = await session.ats_context(headless=not show)
+            adapter = adapters.get(it["channel"])
+        try:
+            res = await adapter.send(ctx, handle, cancel)
+        except Cancelled:
+            _emit(run_id, "item.state", "sending", item_id=iid,
+                  data={"state": "sending",
+                        "reason": "cancel — verify this one manually"})
+            break
+        except Exception as e:
+            res = None
+            _emit(run_id, "item.error", str(e)[:160], item_id=iid, level="error")
 
-            _apply_send_result(run_id, it, res)
-            delay = config.SEND_DELAY_S + random.uniform(0, config.SEND_JITTER_S)
-            try:
-                await cancel.sleep(delay)
-            except Cancelled:
-                break
+        _apply_send_result(run_id, it, res)
+        delay = config.SEND_DELAY_S + random.uniform(0, config.SEND_JITTER_S)
+        try:
+            await cancel.sleep(delay)
+        except Cancelled:
+            break
 
     counts = store.item_counts(run_id)
     status = "awaiting_confirm" if counts.get("ready") or counts.get("needs_input") \
