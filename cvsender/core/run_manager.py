@@ -55,6 +55,11 @@ class RunManager:
     def start_send(self, run_id: int) -> bool:
         return self._start(run_id, lambda c: run_send(run_id, c))
 
+    def start_takeover(self, item_id: int) -> bool:
+        """Open one application pre-filled in a visible window for the human."""
+        from ..engine.worker import run_takeover
+        return self._start(-item_id, lambda c: run_takeover(item_id, c))
+
     def _start(self, run_id: int, factory) -> bool:
         loop = self._ensure_loop()
         with self._lock:

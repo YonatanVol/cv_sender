@@ -52,6 +52,7 @@ function render() {
           <input id="q${i}" data-label="${esc(q.label)}" placeholder="your answer">
         </div>`).join('')}
       <div class="actions">
+        <button onclick="takeover()" title="Re-opens the form already filled with your details + CV">🖥 Fill it for me</button>
         <a class="btn open" href="${esc(it.apply_url || it.url)}" target="_blank" rel="noopener"
            onclick="opened()">Open &amp; apply ↗</a>
         <button class="sent" onclick="markSent()">✓ I sent it</button>
@@ -62,6 +63,18 @@ function render() {
 }
 
 function opened() { toast('Opened — finish it, then hit "I sent it"'); }
+
+// Desktop take-over: re-opens the form ALREADY FILLED (with the CV attached) in
+// a visible window, so you only clear the CAPTCHA and submit. "Open & apply"
+// gives you an empty form; this doesn't.
+async function takeover() {
+  const it = queue[idx];
+  try {
+    await api('POST', `/api/items/${it.id}/takeover`);
+    toast('Filling it in a window — solve the CAPTCHA, submit, then "I sent it"');
+  } catch (e) { toast(e.message); }
+}
+window.takeover = takeover;
 
 async function markSent() {
   const it = queue[idx];

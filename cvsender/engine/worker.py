@@ -216,6 +216,61 @@ async def _prepare_linkedin(run_id, options, cancel, cap, profile, cv_path):
     await _prepare_loop(run_id, ctx, {"linkedin": li}, cancel, profile, cv_path)
 
 
+async def run_takeover(item_id: int, cancel) -> None:
+    """Fill this application again in a VISIBLE window and leave it open.
+
+    The page is deliberately NOT closed and nothing is submitted: the human
+    finishes the last step (CAPTCHA / a question we won't invent an answer to)
+    and clicks submit themselves, then marks it sent in the UI.
+    """
+    it = store.get_item(item_id)
+    if not it:
+        return
+    profile = store.get_profile() or {}
+    cv_path = profile.get("cv_path") or ""
+    run_id = it["run_id"]
+
+    if it["channel"] == "linkedin":
+        ctx = await session.linkedin_context(headless=False)
+        from ..channels.linkedin import LinkedInChannel
+        adapter = LinkedInChannel()
+    else:
+        ctx = await session.ats_context(headless=False)
+        adapter = build_adapters({"channels": [it["channel"]]}).get(it["channel"])
+    if adapter is None:
+        return
+
+    _emit(run_id, "item.state", it["state"], item_id=item_id,
+          data={"state": it["state"], "reason": "opening pre-filled window…"})
+    # NOTE: we deliberately do NOT call adapter.prepare() here — it closes its
+    # page in a finally block, which would make the window vanish. Fill with the
+    # shared helpers instead and leave the page open for the human.
+    page = await ctx.new_page()
+    try:
+        await page.goto(it["apply_url"], wait_until="domcontentloaded",
+                        timeout=45000)
+        await page.wait_for_timeout(2000)
+        if it["channel"] == "linkedin":
+            await adapter._open_modal(page)      # LinkedIn pre-fills from profile
+        else:
+            from ..channels import atsform
+            from ..engine import answerbank as ab
+            root = page.main_frame
+            if it["channel"] == "greenhouse":
+                from ..channels.greenhouse import _form_root
+                root = await _form_root(page)
+            filled, answers = [], {}
+            await atsform.fill_all_text(root, ab.profile_values(profile),
+                                        filled, answers)
+            await atsform.attach_cv(root, cv_path)
+    except Exception as e:
+        _emit(run_id, "item.error", f"take-over: {e}"[:160], item_id=item_id,
+              level="warn")
+    _emit(run_id, "item.state", it["state"], item_id=item_id,
+          data={"state": it["state"],
+                "reason": "window open — finish it, then press 'I sent it'"})
+
+
 def _apply_prepare_result(run_id, it, res, cv_path, profile):
     if res is None:
         store.transition_item(it["id"], ["preparing"], "failed",

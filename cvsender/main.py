@@ -276,6 +276,33 @@ async def mark_sent(item_id: int, request: Request):
     return JSONResponse({"ok": True, "sent_today": store.sent_today()})
 
 
+@app.post("/api/items/{item_id}/takeover")
+async def takeover(item_id: int, request: Request):
+    """Re-open this application PRE-FILLED in a visible browser window.
+
+    'Open & apply' hands you a fresh, empty form — the bot filled it in a
+    headless browser, so none of that work is visible to you. Take-over redoes
+    the fill in a window you can see, then leaves it open at the point where a
+    human is needed (CAPTCHA / odd question). You solve it, hit submit, then
+    press 'I sent it'. This is what makes CAPTCHA-gated boards usable.
+    """
+    _check_origin(request)
+    it = store.get_item(item_id)
+    if not it:
+        raise HTTPException(404, "no such item")
+    if manager.busy():
+        raise HTTPException(409, "a run is active — cancel it first")
+    prof = store.get_profile()
+    if not prof or not prof.get("cv_path"):
+        raise HTTPException(400, "profile/CV not set up")
+    ok = manager.start_takeover(item_id)
+    if not ok:
+        raise HTTPException(409, "could not start take-over")
+    store.mark_assist(item_id)
+    return JSONResponse({"ok": True, "message": "Opening a window, pre-filled…"},
+                        status_code=202)
+
+
 @app.post("/api/items/{item_id}/answers")
 async def save_answers(item_id: int, request: Request):
     """Save screening answers. Learned once -> auto-filled on every future run,
