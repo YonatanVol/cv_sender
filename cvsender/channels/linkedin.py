@@ -14,6 +14,7 @@ from urllib.parse import urlencode
 from ..config import SCREENSHOT_DIR, STEP_TIMEOUT_S
 from ..engine import answerbank as ab
 from .base import (READY, NEEDS_INPUT, FAILED, SENT, SEND_FAILED,
+                   SEND_NEEDS_INPUT,
                    ConfirmationEvidence, FieldFill, Job, PrepareResult,
                    SendHandle, SendResult)
 
@@ -149,8 +150,11 @@ class LinkedInChannel:
                                STEP_TIMEOUT_S)
             await page.wait_for_timeout(2000)
             if any(c in page.url.lower() for c in CHECKPOINT):
-                return SendResult(state=SEND_FAILED,
-                                  reason="LinkedIn checkpoint — may not have submitted")
+                # Ambiguous: it may or may not have submitted. Hand it to the
+                # human to verify — never guess either way.
+                return SendResult(
+                    state=SEND_NEEDS_INPUT,
+                    reason="LinkedIn checkpoint — verify manually whether it sent")
             profile = {"phone": handle.answers.get("phone", ""),
                        "email": handle.answers.get("email", ""),
                        "first_name": handle.answers.get("first_name", ""),
@@ -159,13 +163,29 @@ class LinkedInChannel:
                        "github": handle.answers.get("github", ""),
                        "location": handle.answers.get("location", "")}
             if not await self._open_modal(page):
-                return SendResult(state=SEND_FAILED, reason="Easy Apply not available")
+                # One retry with a hard reload: the button is often just missing
+                # from a cached/draft render.
+                try:
+                    await cancel.guard(page.reload(wait_until="domcontentloaded"),
+                                       STEP_TIMEOUT_S)
+                    await page.wait_for_timeout(2500)
+                except Exception:
+                    pass
+                if not await self._open_modal(page):
+                    # Degrade to the assist queue with a working link rather than
+                    # a dead 'failed' — a human can still finish this in seconds.
+                    return SendResult(
+                        state=SEND_NEEDS_INPUT,
+                        reason="Easy Apply button not available — open and apply manually")
             res = await self._walk(page, profile, handle.cv_path, cancel, submit=True)
             if res.state == "submitted":
                 ev = ConfirmationEvidence("dom", matched="application-sent",
                                           at=time.time())
                 return SendResult(state=SENT, evidence=ev)
-            return SendResult(state=SEND_FAILED, reason=res.reason or "did not submit")
+            # Couldn't confirm a submit: keep it retryable/finishable, never
+            # claim it was sent.
+            return SendResult(state=SEND_NEEDS_INPUT,
+                              reason=res.reason or "did not reach submit")
         except Exception as e:
             return SendResult(state=SEND_FAILED, reason=f"{type(e).__name__}: {e}"[:150])
         finally:
@@ -179,7 +199,8 @@ class LinkedInChannel:
             try:
                 b = await page.query_selector(sel)
                 if b and await b.is_visible():
-                    await b.click()
+                    if not await self._click(b):
+                        continue
                     await page.wait_for_timeout(1800)
                     return True
             except Exception:
@@ -208,7 +229,7 @@ class LinkedInChannel:
                     return PrepareResult(state=READY, filled=filled, answers=answers,
                                          cv_attached=True, screenshot=shot,
                                          reason="ready (reached submit)")
-                await sub.click()
+                await self._click(sub)
                 await page.wait_for_timeout(2500)
                 ok = await self._sent(page)
                 return PrepareResult(state=("submitted" if ok else "failed"),
@@ -217,7 +238,8 @@ class LinkedInChannel:
             if not nxt:
                 return PrepareResult(state=NEEDS_INPUT, filled=filled, answers=answers,
                                      reason="stuck (no next/submit)")
-            await nxt.click()
+            if not await self._click(nxt):
+                break
             await page.wait_for_timeout(1500)
             if await self._error_flagged(page):
                 return PrepareResult(state=NEEDS_INPUT, filled=filled, answers=answers,
@@ -282,6 +304,29 @@ class LinkedInChannel:
         except Exception:
             pass
 
+    async def _click(self, el, timeout: float = 8000) -> bool:
+        """Click resiliently.
+
+        Raw ElementHandle.click() waits the full default timeout (30s) whenever
+        the element is covered by an overlay or re-rendered mid-step, which is
+        what produced the 'ElementHandle.click: Timeout 30000ms' failures. Use a
+        short timeout, scroll it into view, and fall back to a DOM-level click.
+        """
+        try:
+            await el.scroll_into_view_if_needed(timeout=2000)
+        except Exception:
+            pass
+        try:
+            await el.click(timeout=timeout)
+            return True
+        except Exception:
+            pass
+        try:                       # overlay / re-render fallback
+            await el.evaluate("e => e.click()")
+            return True
+        except Exception:
+            return False
+
     async def _find(self, page, texts):
         for t in texts:
             for sel in (f"button[aria-label*='{t}']", f"button:has-text('{t}')"):
@@ -323,11 +368,11 @@ class LinkedInChannel:
         try:
             x = await self._find(page, DISMISS)
             if x:
-                await x.click()
+                await self._click(x)
                 await page.wait_for_timeout(700)
             d = await self._find(page, DISCARD)
             if d:
-                await d.click()
+                await self._click(d)
                 await page.wait_for_timeout(400)
         except Exception:
             pass
