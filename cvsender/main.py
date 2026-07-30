@@ -32,6 +32,9 @@ def _startup():
     swept = store.sweep_stale_runs(config.STALE_RUN_S)
     if swept:
         print(f"[startup] recovered stale runs: {swept}")
+    stuck = store.sweep_stuck_items(config.STUCK_ITEM_S)
+    if stuck:
+        print(f"[startup] rescued {stuck} item(s) stuck in 'sending'")
 
 
 app.mount("/data2", StaticFiles(directory=str(config.DATA_DIR)), name="data2")
@@ -222,6 +225,10 @@ async def confirm_all(run_id: int, request: Request):
 @app.get("/api/assist")
 def assist_queue(limit: int = 200):
     """Everything a human could finish right now, newest/best first."""
+    # The dashboard polls this, so it doubles as the watchdog tick: rescue any
+    # item wedged in 'sending' so it becomes finishable instead of invisible.
+    if not manager.busy():
+        store.sweep_stuck_items(config.STUCK_ITEM_S)
     items = store.assist_queue(limit)
     out = []
     for it in items:

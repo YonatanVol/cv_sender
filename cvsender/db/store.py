@@ -184,7 +184,8 @@ def next_in_state(run_id: int, state: str) -> Optional[dict]:
 def set_item(item_id: int, **fields) -> None:
     if not fields:
         return
-    fields["updated_at"] = _now()
+    # Touch updated_at unless the caller set it explicitly (tests/backfills).
+    fields.setdefault("updated_at", _now())
     sets = ", ".join(f"{k}=?" for k in fields)
     with tx() as c:
         c.execute(f"UPDATE run_items SET {sets} WHERE id=?",
@@ -372,6 +373,24 @@ def record_application(item: dict, evidence: str) -> int:
 
 
 # ------------------------------ recovery -----------------------------------
+
+def sweep_stuck_items(older_than_s: float = 600.0) -> int:
+    """Rescue items wedged in 'sending'.
+
+    A send can stall (browser contention, a hung page) and leave an item in
+    'sending' with no worker behind it — it then never resolves and is invisible
+    to the assist queue. Sweep those to needs_input so a human can verify and
+    finish them. NEVER to 'sent': we have no confirmation evidence, and claiming
+    a send that may not have happened is the worst possible failure.
+    """
+    cutoff = _now() - older_than_s
+    with tx() as c:
+        cur = c.execute(
+            "UPDATE run_items SET state='needs_input', updated_at=?, "
+            "reason='send stalled — verify manually whether it was sent' "
+            "WHERE state='sending' AND updated_at < ?", (_now(), cutoff))
+        return cur.rowcount
+
 
 def sweep_stale_runs(stale_after_s: float) -> list[int]:
     """On startup, reconcile runs whose worker died. ready stays ready (durable,

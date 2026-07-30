@@ -24,6 +24,7 @@ SEND_JITTER_S = 3.0          # added random 0..jitter to each send delay
 MAX_ATTEMPTS = 4             # per-item retry cap before a job stops being re-offered
 HEARTBEAT_S = 2.0            # run heartbeat cadence (crash detection)
 STALE_RUN_S = 30.0           # a run with an older heartbeat is considered dead
+STUCK_ITEM_S = 600.0         # an item in 'sending' this long is stalled, not sending
 
 # A normal-looking desktop UA reduces trivial automation flags.
 USER_AGENT = (
