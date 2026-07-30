@@ -240,6 +240,46 @@ def events_after(run_id: int, cursor: int, limit: int = 200) -> list[dict]:
 
 # ---------------------------- applications ---------------------------------
 
+def dismiss(item: dict, kind: str = "unavailable") -> None:
+    """Permanently stop offering this job.
+
+    Used for postings that are gone when you click through (and for 'never show
+    me this again'). Deliberately NOT written to `applications`: it was never
+    sent, so it must not inflate the sent count or look like an application.
+    """
+    with tx() as c:
+        c.execute(
+            "INSERT INTO dismissed (dedupe_key, content_hash, kind, company, "
+            "title, at) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(dedupe_key) DO UPDATE SET kind=excluded.kind, "
+            "at=excluded.at",
+            (item["dedupe_key"], item.get("content_hash"), kind,
+             item.get("company"), item.get("title"), _now()))
+
+
+def is_dismissed(dedupe_key: str, content_hash: Optional[str] = None) -> bool:
+    with ro() as c:
+        if c.execute("SELECT 1 FROM dismissed WHERE dedupe_key=?",
+                     (dedupe_key,)).fetchone():
+            return True
+        if content_hash and c.execute(
+                "SELECT 1 FROM dismissed WHERE content_hash=?",
+                (content_hash,)).fetchone():
+            return True
+        return False
+
+
+def dismissed_count() -> int:
+    with ro() as c:
+        return c.execute("SELECT COUNT(*) n FROM dismissed").fetchone()["n"]
+
+
+def already_handled(dedupe_key: str, content_hash: Optional[str] = None) -> bool:
+    """Skip this job in future runs: either genuinely sent, or dismissed."""
+    return already_sent(dedupe_key, content_hash) or \
+        is_dismissed(dedupe_key, content_hash)
+
+
 def already_sent(dedupe_key: str, content_hash: Optional[str] = None) -> bool:
     """Terminal dedupe: only a verified 'sent' application blocks re-offering."""
     with ro() as c:
@@ -366,6 +406,8 @@ def assist_queue(limit: int = 200) -> list[dict]:
             "WHERE i.state IN ('needs_input','failed','ready') "
             "  AND NOT EXISTS (SELECT 1 FROM applications a "
             "                  WHERE a.dedupe_key = i.dedupe_key) "
+            "  AND NOT EXISTS (SELECT 1 FROM dismissed d "
+            "                  WHERE d.dedupe_key = i.dedupe_key) "
             "GROUP BY i.dedupe_key "
             "ORDER BY (i.state='ready') DESC, i.score DESC, i.id DESC LIMIT ?",
             (limit,)).fetchall()]

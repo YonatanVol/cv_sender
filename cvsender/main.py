@@ -373,6 +373,34 @@ async def mark_sent(item_id: int, request: Request):
     return JSONResponse({"ok": True, "sent_today": store.sent_today()})
 
 
+@app.post("/api/items/{item_id}/unavailable")
+async def mark_unavailable(item_id: int, request: Request):
+    """The posting is gone / closed when you click through.
+
+    Distinct from 'skip' (which means "not now" and comes back) and from 'sent'
+    (it was never sent, so it must not touch the sent count). Recorded in
+    `dismissed`, which the dedupe path consults, so it stops being re-staged on
+    every future run.
+    """
+    _check_origin(request)
+    it = store.get_item(item_id)
+    if not it:
+        raise HTTPException(404, "no such item")
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    kind = body.get("kind") or "unavailable"
+    store.dismiss(it, kind=kind)
+    store.transition_item(item_id, ["needs_input", "failed", "ready",
+                                    "sending", "sent_unverified"], "skipped",
+                          reason="no longer available")
+    store.add_event(it["run_id"], "item.state", "skipped", item_id=item_id,
+                    data={"state": "skipped", "reason": kind})
+    return JSONResponse({"ok": True, "dismissed": store.dismissed_count()})
+
+
 @app.post("/api/items/{item_id}/takeover")
 async def takeover(item_id: int, request: Request):
     """Re-open this application PRE-FILLED in a visible browser window.

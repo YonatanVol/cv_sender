@@ -138,6 +138,21 @@ MIGRATIONS: list[str] = [
         updated_at REAL
     );
     """,
+
+    # 004 — jobs the user has permanently dismissed (expired postings, or ones
+    # they never want offered again). Kept separate from `applications` so they
+    # never count as sent, but consulted by the same dedupe path so they stop
+    # being re-staged on every future run.
+    """
+    CREATE TABLE dismissed (
+        dedupe_key TEXT PRIMARY KEY,
+        content_hash TEXT,
+        kind TEXT NOT NULL DEFAULT 'unavailable',
+        company TEXT, title TEXT,
+        at REAL
+    );
+    CREATE INDEX idx_dismissed_hash ON dismissed(content_hash);
+    """,
 ]
 
 
