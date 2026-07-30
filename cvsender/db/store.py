@@ -351,6 +351,23 @@ def assist_queue(limit: int = 200) -> list[dict]:
             (limit,)).fetchall()]
 
 
+def blocked_companies(min_hits: int = 1) -> set[str]:
+    """Companies whose forms have blocked us before (CAPTCHA / no usable form).
+
+    Used to order preparation so boards that actually yield sendable
+    applications go first — a run's effort is finite, and an item that will
+    certainly need a human is worth less than one that can auto-send.
+    """
+    with ro() as c:
+        rows = c.execute(
+            "SELECT company, COUNT(*) n FROM run_items "
+            "WHERE state IN ('needs_input','failed') AND ("
+            "  reason LIKE '%CAPTCHA%' OR reason LIKE '%no recognized form%' "
+            "  OR reason LIKE '%account%') "
+            "GROUP BY company HAVING n >= ?", (min_hits,)).fetchall()
+        return {r["company"] for r in rows if r["company"]}
+
+
 def mark_assist(item_id: int) -> None:
     with tx() as c:
         c.execute("UPDATE run_items SET assist_at=? WHERE id=?", (_now(), item_id))

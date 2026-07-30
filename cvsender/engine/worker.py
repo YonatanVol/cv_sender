@@ -97,15 +97,23 @@ async def _prepare_ats(run_id, options, cancel, cap, profile, cv_path,
         kept.append({"job": job, "score": v.score, "signals": v.signals})
     _emit(run_id, "funnel.update", "funnel", data=funnel)
 
-    kept.sort(key=lambda k: k["score"], reverse=True)
+    # Order by sendability first, then score: boards that have blocked us before
+    # (CAPTCHA / no usable form) still get prepared, but after the ones that can
+    # actually auto-send, so a capped run spends its effort where it pays off.
+    blocked = store.blocked_companies()
+    kept.sort(key=lambda k: (k["job"].company in blocked, -k["score"]))
     selected = kept[:cap]
+    deferred = sum(1 for k in selected if k["job"].company in blocked)
     _emit(run_id, "phase", f"{len(all_jobs)} fetched · {funnel['kept']} relevant "
-                           f"· preparing top {len(selected)}")
+                           f"· preparing top {len(selected)}"
+                           + (f" ({deferred} known-blocked last)" if deferred else ""))
 
     added = _add_items(run_id, selected)
     if added:
         ctx = await session.ats_context(headless=True)   # reused across runs
-        await _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path)
+        await _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path,
+                            concurrency=int(options.get("concurrency",
+                                                        config.PREPARE_CONCURRENCY)))
     return max(0, cap - added)
 
 
@@ -128,30 +136,54 @@ def _add_items(run_id, selected) -> int:
     return n
 
 
-async def _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path):
-    while True:
-        cancel.check()
-        store.heartbeat(run_id)
-        it = store.next_queued(run_id)
-        if not it:
-            break
-        if not store.transition_item(it["id"], ["queued"], "preparing"):
-            continue
-        _emit(run_id, "item.state", "preparing", item_id=it["id"],
-              data={"state": "preparing"})
-        adapter = adapters.get(it["channel"])
-        job = _job_from_item(it)
-        try:
-            res = await adapter.prepare(ctx, job, profile, cv_path, cancel)
-        except Cancelled:
-            store.transition_item(it["id"], ["preparing"], "queued")
-            raise
-        except Exception as e:
-            res = None
-            _emit(run_id, "item.error", str(e)[:160], item_id=it["id"],
-                  level="error")
-        _apply_prepare_result(run_id, it, res, cv_path, profile)
-        await cancel.sleep(config.PREPARE_DELAY_S)
+async def _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path,
+                        concurrency: int = 1):
+    """Drain the queued items.
+
+    PREPARE only reads and fills forms — it never submits — so it is safe to run
+    several in parallel, each on its own page in the shared context. That is the
+    difference between ~8s/item serially and a batch of 100 finishing in minutes.
+    Sends stay strictly sequential elsewhere (rate limiting / account safety).
+    Item claiming is race-free: transition_item() only succeeds for one worker.
+    """
+    import asyncio
+
+    async def _one_worker():
+        while True:
+            cancel.check()
+            store.heartbeat(run_id)
+            it = store.next_queued(run_id)
+            if not it:
+                return
+            if not store.transition_item(it["id"], ["queued"], "preparing"):
+                continue                      # another worker claimed it
+            _emit(run_id, "item.state", "preparing", item_id=it["id"],
+                  data={"state": "preparing"})
+            adapter = adapters.get(it["channel"])
+            job = _job_from_item(it)
+            try:
+                res = await adapter.prepare(ctx, job, profile, cv_path, cancel)
+            except Cancelled:
+                store.transition_item(it["id"], ["preparing"], "queued")
+                raise
+            except Exception as e:
+                res = None
+                _emit(run_id, "item.error", str(e)[:160], item_id=it["id"],
+                      level="error")
+            _apply_prepare_result(run_id, it, res, cv_path, profile)
+            await cancel.sleep(config.PREPARE_DELAY_S)
+
+    n = max(1, int(concurrency))
+    if n == 1:
+        await _one_worker()
+        return
+    results = await asyncio.gather(*[_one_worker() for _ in range(n)],
+                                   return_exceptions=True)
+    for r in results:                          # propagate a real cancel
+        if isinstance(r, Cancelled):
+            raise r
+        if isinstance(r, BaseException) and not isinstance(r, Exception):
+            raise r
 
 
 async def _prepare_linkedin(run_id, options, cancel, cap, profile, cv_path):

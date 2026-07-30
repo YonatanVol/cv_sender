@@ -19,6 +19,10 @@ PORT = 8010
 # Engine timing / safety.
 STEP_TIMEOUT_S = 45.0        # hard ceiling on any single Playwright step
 PREPARE_DELAY_S = 2.0        # polite pause between prepared items
+# PREPARE is read-only (fills forms, never submits), so it parallelises safely.
+# This is the main lever on how many applications a run can stage per hour.
+PREPARE_CONCURRENCY = 4
+MAX_CAP = 300                # ceiling on items staged per run
 SEND_DELAY_S = 6.0           # human-scale pause between real sends (ban safety)
 SEND_JITTER_S = 3.0          # added random 0..jitter to each send delay
 MAX_ATTEMPTS = 4             # per-item retry cap before a job stops being re-offered

@@ -116,7 +116,9 @@ async def create_run(request: Request):
     options = {
         "channels": body.get("channels") or ["greenhouse"],
         "mode": "live" if body.get("mode") == "live" else "dry",
-        "cap": max(1, min(int(body.get("cap", 20)), 100)),
+        "cap": max(1, min(int(body.get("cap", 20)), config.MAX_CAP)),
+        "concurrency": max(1, min(int(body.get("concurrency",
+                                               config.PREPARE_CONCURRENCY)), 8)),
         "geography": body.get("geography", "israel_remote"),
         "strictness": body.get("strictness", "balanced"),
     }
