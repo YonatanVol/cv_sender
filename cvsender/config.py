@@ -11,10 +11,12 @@ CV_DIR = DATA_DIR / "cv"
 LINKEDIN_PROFILE_DIR = DATA_DIR / "linkedin_profile"   # persistent browser login
 BOARDS_PATH = DATA_DIR / "boards.yaml"
 
-# Bind the local server to loopback only — the confirm endpoints trigger real,
-# irreversible outward actions, so the surface must never be network-reachable.
-HOST = "127.0.0.1"
-PORT = 8010
+# Bind to loopback only by default — the confirm endpoints trigger real,
+# irreversible outward actions. CVS_HOST is what run2.sh --remote sets, and the
+# app refuses to start on a non-loopback host unless a passphrase is configured.
+import os as _os
+HOST = _os.environ.get("CVS_HOST", "127.0.0.1")
+PORT = int(_os.environ.get("CVS_PORT", "8010"))
 
 # Engine timing / safety.
 STEP_TIMEOUT_S = 45.0        # hard ceiling on any single Playwright step

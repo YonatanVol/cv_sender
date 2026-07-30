@@ -127,6 +127,32 @@ volume is not attainable there; the workflow that *is*:
 LinkedIn Easy Apply is the one channel that genuinely auto-sends, and it is
 deliberately capped and jittered for account safety.
 
+## Phone access
+
+The app runs on your Mac (that's where the browser automation lives) and you
+drive it from your phone.
+
+```bash
+./.venv/bin/python -m cvsender.setpass   # one-time: set a passphrase
+./run2.sh --remote                       # prints the URL + a QR code to scan
+```
+
+Then **Add to Home Screen** to install it as an app.
+
+Because `/confirm` and `mark-sent` fire **real, irreversible** applications,
+remote access is authenticated and the app enforces it in two places: `run2.sh`
+refuses `--remote` without a passphrase, and the server itself refuses to bind a
+non-loopback host unless one is set. Local (`127.0.0.1`) use stays open and
+unchanged.
+
+- Passphrase hashed with **scrypt** (stdlib), never stored or logged in plaintext
+- Sessions are server-side random tokens — no signing secret to leak, and a
+  restart logs you out
+- Failed logins are rate-limited and locked out
+- **From anywhere** (not just your Wi-Fi): [Tailscale](https://tailscale.com) is
+  the recommended path — device-level auth and no public URL. Cloudflare Tunnel
+  works if you want a public hostname.
+
 ## Channels
 
 | Channel | Discovery | Form filling | Success signal |
