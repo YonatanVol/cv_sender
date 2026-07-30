@@ -5,3 +5,4 @@ python-multipart
 httpx
 playwright
 pyyaml
+pypdf

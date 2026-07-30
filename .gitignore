@@ -1,5 +1,6 @@
 # Secrets & personal data — never commit
 data/
+data2/
 .venv/
 __pycache__/
 *.pyc
