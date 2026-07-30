@@ -253,6 +253,26 @@ def already_sent(dedupe_key: str, content_hash: Optional[str] = None) -> bool:
         return False
 
 
+# ---------------------------- settings -------------------------------------
+
+def get_setting(key: str) -> Optional[str]:
+    with ro() as c:
+        r = c.execute("SELECT value FROM app_settings WHERE key=?",
+                      (key,)).fetchone()
+        return r["value"] if r else None
+
+
+def set_setting(key: str, value: Optional[str]) -> None:
+    with tx() as c:
+        if value is None:
+            c.execute("DELETE FROM app_settings WHERE key=?", (key,))
+        else:
+            c.execute(
+                "INSERT INTO app_settings (key, value, updated_at) VALUES (?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                "updated_at=excluded.updated_at", (key, value, _now()))
+
+
 # --------------------------- answer bank -----------------------------------
 
 def normalize_question(q: str) -> str:

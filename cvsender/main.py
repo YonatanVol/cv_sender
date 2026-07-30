@@ -15,7 +15,7 @@ from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 
-from . import config, cv as cvmod
+from . import auth, config, cv as cvmod
 from .core.run_manager import manager
 from .db import store
 from .db.migrations import migrate
@@ -29,6 +29,14 @@ app = FastAPI(title="CV Sender v2")
 @app.on_event("startup")
 def _startup():
     migrate()
+    # Refuse to be reachable off-machine without a passphrase: these endpoints
+    # fire real, irreversible applications.
+    if config.HOST not in ("127.0.0.1", "localhost", "::1") \
+            and not auth.is_configured():
+        raise RuntimeError(
+            f"Refusing to bind {config.HOST} without authentication. "
+            "Set a passphrase first (open the app on localhost -> Settings, "
+            "or run: python -m cvsender.setpass).")
     swept = store.sweep_stale_runs(config.STALE_RUN_S)
     if swept:
         print(f"[startup] recovered stale runs: {swept}")
@@ -42,6 +50,95 @@ app.mount("/static", StaticFiles(directory=str(WEB)), name="static")
 
 
 # --------------------------- consent / origin ------------------------------
+
+PUBLIC_PATHS = {"/login", "/api/login", "/static/manifest.webmanifest",
+                "/static/icon.svg", "/api/auth/status"}
+
+
+def _is_loopback(request: Request) -> bool:
+    host = (request.client.host if request.client else "") or ""
+    return host in ("127.0.0.1", "::1", "localhost")
+
+
+@app.middleware("http")
+async def _auth_gate(request: Request, call_next):
+    """Gate everything once a passphrase is set.
+
+    Loopback stays open when no passphrase is configured, so local use is
+    unchanged; as soon as one exists (i.e. the user intends remote access),
+    every request must carry a valid session.
+    """
+    path = request.url.path
+    if not auth.is_configured() or path in PUBLIC_PATHS \
+            or path.startswith("/static/"):
+        return await call_next(request)
+    if auth.valid_session(request.cookies.get(auth.COOKIE)):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "authentication required"}, status_code=401)
+    return RedirectResponse("/login", status_code=303)
+
+
+@app.get("/login")
+def login_page():
+    return FileResponse(str(WEB / "login.html"))
+
+
+@app.get("/api/auth/status")
+def auth_status(request: Request):
+    return JSONResponse({
+        "configured": auth.is_configured(),
+        "authenticated": auth.valid_session(request.cookies.get(auth.COOKIE)),
+        "loopback": _is_loopback(request),
+    })
+
+
+@app.post("/api/login")
+async def login(request: Request):
+    body = await request.json()
+    client = (request.client.host if request.client else "?") or "?"
+    wait = auth.locked_out(client)
+    if wait:
+        raise HTTPException(429, f"too many attempts — try again in {int(wait)}s")
+    if not auth.verify_passphrase(body.get("passphrase") or ""):
+        auth.note_failure(client)
+        raise HTTPException(401, "wrong passphrase")
+    auth.clear_failures(client)
+    token = auth.create_session()
+    resp = JSONResponse({"ok": True})
+    # Secure only over real HTTPS: a Secure cookie is dropped on plain-HTTP LAN,
+    # which would silently make login impossible.
+    resp.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax",
+                    secure=request.url.scheme == "https",
+                    max_age=auth.SESSION_TTL_S, path="/")
+    return resp
+
+
+@app.post("/api/logout")
+async def logout(request: Request):
+    auth.destroy_session(request.cookies.get(auth.COOKIE))
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(auth.COOKIE, path="/")
+    return resp
+
+
+@app.post("/api/auth/passphrase")
+async def set_passphrase(request: Request):
+    """Set or change the passphrase. Only allowed from loopback, or when already
+    authenticated — never anonymously from the network."""
+    _check_origin(request)
+    if auth.is_configured():
+        if not auth.valid_session(request.cookies.get(auth.COOKIE)):
+            raise HTTPException(401, "log in first")
+    elif not _is_loopback(request):
+        raise HTTPException(403, "set the passphrase from the local machine")
+    body = await request.json()
+    try:
+        auth.set_passphrase(body.get("passphrase") or "")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return JSONResponse({"ok": True})
+
 
 def _check_origin(request: Request) -> None:
     """Reject cross-origin mutations of the irreversible endpoints."""

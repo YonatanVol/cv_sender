@@ -129,6 +129,15 @@ MIGRATIONS: list[str] = [
     -- needs_input/failed and assist_at marks that it is in the burst queue.
     ALTER TABLE run_items ADD COLUMN assist_at REAL;
     """,
+
+    # 003 — app settings (passphrase hash for remote access, misc config).
+    """
+    CREATE TABLE app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at REAL
+    );
+    """,
 ]
 
 
