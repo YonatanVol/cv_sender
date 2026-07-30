@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Stage a day's applications automatically, every morning at 08:30.
+
+  Install:
+    cp scripts/com.cvsender.autorun.plist ~/Library/LaunchAgents/
+    # edit the paths below if the repo isn't at ~/cv_sender
+    launchctl load ~/Library/LaunchAgents/com.cvsender.autorun.plist
+
+  Remove:
+    launchctl unload ~/Library/LaunchAgents/com.cvsender.autorun.plist
+
+  It only PREPARES applications — it never submits. Sending stays behind your
+  confirm in the app.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cvsender.autorun</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/yonatanvolsky/cv_sender/.venv/bin/python</string>
+    <string>-m</string>
+    <string>cvsender.runner</string>
+    <string>--target</string>
+    <string>100</string>
+    <string>--batch</string>
+    <string>40</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/yonatanvolsky/cv_sender</string>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>8</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/yonatanvolsky/cv_sender/data2/autorun.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/yonatanvolsky/cv_sender/data2/autorun.log</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
