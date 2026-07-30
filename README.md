@@ -95,6 +95,38 @@ LinkedIn needs a one-time manual login (we never see or store your password):
 ./.venv/bin/python scripts/li_v2_login.py
 ```
 
+## Self-driving runner
+
+Keeps the assist queue stocked without you (or an AI agent) in the loop —
+deterministic rules only, so staging costs nothing:
+
+```bash
+python -m cvsender.runner --target 100            # stage up to 100
+python -m cvsender.runner --target 100 --loop     # top up as you clear them
+```
+
+It only **prepares** (fill + attach CV + park). It never submits — sending always
+requires your confirm. Schedule it for every morning:
+
+```bash
+cp scripts/com.cvsender.autorun.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.cvsender.autorun.plist
+```
+
+### Realistic throughput
+
+CAPTCHA is near-universal on ATS boards — in one measured run **11 of 12** items
+hit one, including companies never tried before. So fully-automatic sending at
+volume is not attainable there; the workflow that *is*:
+
+1. the runner stages ~100 filled applications overnight
+2. you clear them in bursts at `/assist` (~5–10s each, so ~15 min)
+3. **"🖥 Fill it for me"** re-opens one in a visible window already filled, so you
+   only clear the CAPTCHA and submit
+
+LinkedIn Easy Apply is the one channel that genuinely auto-sends, and it is
+deliberately capped and jittered for account safety.
+
 ## Channels
 
 | Channel | Discovery | Form filling | Success signal |
