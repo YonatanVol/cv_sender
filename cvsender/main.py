@@ -392,13 +392,40 @@ async def mark_unavailable(item_id: int, request: Request):
     except Exception:
         pass
     kind = body.get("kind") or "unavailable"
-    store.dismiss(it, kind=kind)
+    store.dismiss(it, kind=kind, note=body.get("note") or "")
     store.transition_item(item_id, ["needs_input", "failed", "ready",
                                     "sending", "sent_unverified"], "skipped",
                           reason="no longer available")
     store.add_event(it["run_id"], "item.state", "skipped", item_id=item_id,
                     data={"state": "skipped", "reason": kind})
     return JSONResponse({"ok": True, "dismissed": store.dismissed_count()})
+
+
+@app.get("/api/dismissed")
+def dismissed_list():
+    """Jobs you've dismissed, with why/when — and whether the block is permanent
+    (same posting) or a temporary content-only match that will expire."""
+    return JSONResponse({"items": store.list_dismissed(),
+                         "count": store.dismissed_count(),
+                         "content_block_days": store.CONTENT_BLOCK_DAYS})
+
+
+@app.post("/api/dismissed/restore")
+async def dismissed_restore(request: Request):
+    """Undo a dismissal — the job becomes eligible again on the next run."""
+    _check_origin(request)
+    body = await request.json()
+    key = body.get("dedupe_key") or ""
+    if not key:
+        raise HTTPException(400, "dedupe_key required")
+    if not store.restore_dismissed(key):
+        raise HTTPException(404, "not dismissed")
+    return JSONResponse({"ok": True, "count": store.dismissed_count()})
+
+
+@app.get("/dismissed")
+def dismissed_page():
+    return FileResponse(str(WEB / "dismissed.html"))
 
 
 @app.post("/api/items/{item_id}/takeover")

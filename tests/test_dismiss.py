@@ -48,11 +48,62 @@ def test_dismissed_leaves_the_assist_queue(db):
     assert not any(i["id"] == iid for i in db.assist_queue())
 
 
-def test_dismiss_matches_repost_by_content_hash(db):
-    """Same role reposted under a new id shouldn't come back either."""
+def test_same_posting_blocked_permanently(db):
+    """Same channel+external id must stay blocked, however long it's been."""
+    import time as _t
+    run = db.create_run_atomic({}, "dry")
+    item = db.get_item(_item(db, run))
+    db.dismiss(item)
+    with db.tx() as c:                        # pretend a year passed
+        c.execute("UPDATE dismissed SET at=?, content_expires_at=?",
+                  (_t.time() - 365 * 86400, _t.time() - 300 * 86400))
+    assert db.already_handled(item["dedupe_key"], item["content_hash"]) is True
+
+
+def test_same_canonical_url_blocked_permanently(db):
+    """Tracking params / trailing slash must not defeat the block."""
+    run = db.create_run_atomic({}, "dry")
+    item = db.get_item(_item(db, run))
+    db.dismiss(item)                          # apply_url = http://x
+    assert db.is_dismissed("greenhouse:acme:777", None,
+                           "http://X/?utm_source=foo") is True
+
+
+def test_content_only_match_expires(db):
+    """A closed role reposted later with identical text MUST resurface —
+    blocking forever on content alone would hide a genuinely new opening."""
+    import time as _t
     run = db.create_run_atomic({}, "dry")
     db.dismiss(db.get_item(_item(db, run, "greenhouse:acme:1")))
-    assert db.already_handled("greenhouse:acme:999", "hgreenhouse:acme:1") is True
+    # different posting id and URL, same text -> blocked for now...
+    assert db.is_dismissed("greenhouse:acme:999", "hgreenhouse:acme:1",
+                           "http://other") is True
+    with db.tx() as c:                        # ...but the window expires
+        c.execute("UPDATE dismissed SET content_expires_at=?",
+                  (_t.time() - 10,))
+    assert db.is_dismissed("greenhouse:acme:999", "hgreenhouse:acme:1",
+                           "http://other") is False
+
+
+def test_restore_undoes_dismissal(db):
+    run = db.create_run_atomic({}, "dry")
+    item = db.get_item(_item(db, run))
+    db.dismiss(item)
+    assert db.already_handled(item["dedupe_key"], item["content_hash"]) is True
+    assert db.restore_dismissed(item["dedupe_key"]) is True
+    assert db.already_handled(item["dedupe_key"], item["content_hash"]) is False
+    assert db.dismissed_count() == 0
+
+
+def test_dismissal_records_audit_details(db):
+    run = db.create_run_atomic({}, "dry")
+    item = db.get_item(_item(db, run))
+    db.dismiss(item, kind="unavailable", note="posting closed")
+    row = db.list_dismissed()[0]
+    assert row["at"] and row["kind"] == "unavailable"
+    assert row["note"] == "posting closed"
+    assert row["channel"] == "greenhouse" and row["external_id"] == "1"
+    assert row["canonical_url"] == "http://x"
 
 
 def test_dismiss_is_idempotent(db):

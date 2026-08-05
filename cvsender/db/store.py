@@ -240,44 +240,117 @@ def events_after(run_id: int, cursor: int, limit: int = 200) -> list[dict]:
 
 # ---------------------------- applications ---------------------------------
 
-def dismiss(item: dict, kind: str = "unavailable") -> None:
-    """Permanently stop offering this job.
+CONTENT_BLOCK_DAYS = 60          # content-only matches expire; identity never does
 
-    Used for postings that are gone when you click through (and for 'never show
-    me this again'). Deliberately NOT written to `applications`: it was never
-    sent, so it must not inflate the sent count or look like an application.
+
+def canonical_url(url: Optional[str]) -> str:
+    """Strip tracking params/fragments so the same posting matches itself."""
+    if not url:
+        return ""
+    try:
+        from urllib.parse import urlsplit, urlunsplit
+        p = urlsplit(url.strip())
+        host = (p.netloc or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        path = (p.path or "").rstrip("/")
+        return urlunsplit((p.scheme.lower() or "https", host, path, "", ""))
+    except Exception:
+        return (url or "").strip().lower()
+
+
+def dismiss(item: dict, kind: str = "unavailable",
+            note: str = "", content_block_days: int = CONTENT_BLOCK_DAYS) -> None:
+    """Stop offering this job.
+
+    Tiered on purpose (a closed role can be reposted later with identical text):
+      * same channel + external id  -> permanent
+      * same canonical URL          -> permanent
+      * same content_hash only      -> TEMPORARY (expires), so a genuine repost
+                                       under a new id resurfaces
+    Never written to `applications`: it was not sent, so it must not inflate the
+    sent count. Keeps dismissed_at, reason and source details for auditing.
     """
+    key = item["dedupe_key"]
+    channel = item.get("channel") or (key.split(":", 1)[0] if ":" in key else "")
+    external_id = key.rsplit(":", 1)[-1] if ":" in key else ""
+    url = item.get("apply_url") or item.get("url") or ""
+    now = _now()
+    expires = now + max(0, content_block_days) * 86400 if item.get("content_hash") \
+        else None
     with tx() as c:
         c.execute(
             "INSERT INTO dismissed (dedupe_key, content_hash, kind, company, "
-            "title, at) VALUES (?,?,?,?,?,?) "
+            "title, at, apply_url, canonical_url, channel, external_id, note, "
+            "content_expires_at, restored_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL) "
             "ON CONFLICT(dedupe_key) DO UPDATE SET kind=excluded.kind, "
-            "at=excluded.at",
-            (item["dedupe_key"], item.get("content_hash"), kind,
-             item.get("company"), item.get("title"), _now()))
+            "at=excluded.at, note=excluded.note, "
+            "content_expires_at=excluded.content_expires_at, restored_at=NULL",
+            (key, item.get("content_hash"), kind, item.get("company"),
+             item.get("title"), now, url, canonical_url(url), channel,
+             external_id, note, expires))
 
 
-def is_dismissed(dedupe_key: str, content_hash: Optional[str] = None) -> bool:
+def restore_dismissed(dedupe_key: str) -> bool:
+    """Undo a dismissal so the job can be offered again."""
+    with tx() as c:
+        cur = c.execute("DELETE FROM dismissed WHERE dedupe_key=?", (dedupe_key,))
+        return cur.rowcount > 0
+
+
+def is_dismissed(dedupe_key: str, content_hash: Optional[str] = None,
+                 url: Optional[str] = None) -> bool:
+    now = _now()
     with ro() as c:
-        if c.execute("SELECT 1 FROM dismissed WHERE dedupe_key=?",
-                     (dedupe_key,)).fetchone():
+        # 1) exact posting identity (channel:company:external_id) -> permanent
+        if c.execute("SELECT 1 FROM dismissed WHERE dedupe_key=? "
+                     "AND restored_at IS NULL", (dedupe_key,)).fetchone():
             return True
+        # 2) same canonical URL -> permanent
+        canon = canonical_url(url)
+        if canon and c.execute(
+                "SELECT 1 FROM dismissed WHERE canonical_url=? AND canonical_url<>'' "
+                "AND restored_at IS NULL", (canon,)).fetchone():
+            return True
+        # 3) identical text only -> temporary, so a real repost comes back
         if content_hash and c.execute(
-                "SELECT 1 FROM dismissed WHERE content_hash=?",
-                (content_hash,)).fetchone():
+                "SELECT 1 FROM dismissed WHERE content_hash=? AND restored_at IS NULL "
+                "AND (content_expires_at IS NULL OR content_expires_at > ?)",
+                (content_hash, now)).fetchone():
             return True
         return False
 
 
+def list_dismissed(limit: int = 300) -> list[dict]:
+    """For the 'dismissed jobs' screen, newest first, with why + when."""
+    now = _now()
+    with ro() as c:
+        rows = c.execute(
+            "SELECT * FROM dismissed WHERE restored_at IS NULL "
+            "ORDER BY at DESC LIMIT ?", (limit,)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            exp = d.get("content_expires_at")
+            d["content_block_active"] = bool(exp and exp > now)
+            d["content_expires_in_days"] = (
+                int((exp - now) // 86400) if exp and exp > now else 0)
+            out.append(d)
+        return out
+
+
 def dismissed_count() -> int:
     with ro() as c:
-        return c.execute("SELECT COUNT(*) n FROM dismissed").fetchone()["n"]
+        return c.execute("SELECT COUNT(*) n FROM dismissed "
+                         "WHERE restored_at IS NULL").fetchone()["n"]
 
 
-def already_handled(dedupe_key: str, content_hash: Optional[str] = None) -> bool:
+def already_handled(dedupe_key: str, content_hash: Optional[str] = None,
+                    url: Optional[str] = None) -> bool:
     """Skip this job in future runs: either genuinely sent, or dismissed."""
     return already_sent(dedupe_key, content_hash) or \
-        is_dismissed(dedupe_key, content_hash)
+        is_dismissed(dedupe_key, content_hash, url)
 
 
 def already_sent(dedupe_key: str, content_hash: Optional[str] = None) -> bool:
