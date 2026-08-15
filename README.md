@@ -137,7 +137,12 @@ drive it from your phone.
 ./run2.sh --remote                       # prints the URL + a QR code to scan
 ```
 
-Then **Add to Home Screen** to install it as an app.
+Scan the QR (or open the printed URL) on your phone, sign in, then **Add to
+Home Screen**. It installs as a real app — Android Chrome needs the PNG icons
+in the manifest for that, which are included.
+
+Works on Android and iOS; the Mac must stay awake and on the same network
+(or on Tailscale, below).
 
 Because `/confirm` and `mark-sent` fire **real, irreversible** applications,
 remote access is authenticated and the app enforces it in two places: `run2.sh`

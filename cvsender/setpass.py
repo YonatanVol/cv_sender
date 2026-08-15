@@ -17,6 +17,18 @@ from .db.migrations import migrate
 
 def main(argv=None) -> int:
     migrate()
+    # Piped input (`echo 'phrase' | python -m cvsender.setpass`) so this works
+    # from a script. Interactive getpass stays the default — it keeps the
+    # passphrase out of your shell history.
+    if not sys.stdin.isatty():
+        phrase = sys.stdin.readline().rstrip("\n")
+        try:
+            auth.set_passphrase(phrase)
+        except ValueError as e:
+            print(f"{e}")
+            return 1
+        print("Passphrase set. Remote access is now allowed (./run2.sh --remote).")
+        return 0
     if auth.is_configured():
         print("A passphrase is already set. Enter the current one to change it.")
         if not auth.verify_passphrase(getpass.getpass("Current passphrase: ")):
