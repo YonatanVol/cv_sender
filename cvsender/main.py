@@ -373,6 +373,61 @@ async def mark_sent(item_id: int, request: Request):
     return JSONResponse({"ok": True, "sent_today": store.sent_today()})
 
 
+@app.post("/api/items/{item_id}/unavailable")
+async def mark_unavailable(item_id: int, request: Request):
+    """The posting is gone / closed when you click through.
+
+    Distinct from 'skip' (which means "not now" and comes back) and from 'sent'
+    (it was never sent, so it must not touch the sent count). Recorded in
+    `dismissed`, which the dedupe path consults, so it stops being re-staged on
+    every future run.
+    """
+    _check_origin(request)
+    it = store.get_item(item_id)
+    if not it:
+        raise HTTPException(404, "no such item")
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    kind = body.get("kind") or "unavailable"
+    store.dismiss(it, kind=kind, note=body.get("note") or "")
+    store.transition_item(item_id, ["needs_input", "failed", "ready",
+                                    "sending", "sent_unverified"], "skipped",
+                          reason="no longer available")
+    store.add_event(it["run_id"], "item.state", "skipped", item_id=item_id,
+                    data={"state": "skipped", "reason": kind})
+    return JSONResponse({"ok": True, "dismissed": store.dismissed_count()})
+
+
+@app.get("/api/dismissed")
+def dismissed_list():
+    """Jobs you've dismissed, with why/when — and whether the block is permanent
+    (same posting) or a temporary content-only match that will expire."""
+    return JSONResponse({"items": store.list_dismissed(),
+                         "count": store.dismissed_count(),
+                         "content_block_days": store.CONTENT_BLOCK_DAYS})
+
+
+@app.post("/api/dismissed/restore")
+async def dismissed_restore(request: Request):
+    """Undo a dismissal — the job becomes eligible again on the next run."""
+    _check_origin(request)
+    body = await request.json()
+    key = body.get("dedupe_key") or ""
+    if not key:
+        raise HTTPException(400, "dedupe_key required")
+    if not store.restore_dismissed(key):
+        raise HTTPException(404, "not dismissed")
+    return JSONResponse({"ok": True, "count": store.dismissed_count()})
+
+
+@app.get("/dismissed")
+def dismissed_page():
+    return FileResponse(str(WEB / "dismissed.html"))
+
+
 @app.post("/api/items/{item_id}/takeover")
 async def takeover(item_id: int, request: Request):
     """Re-open this application PRE-FILLED in a visible browser window.

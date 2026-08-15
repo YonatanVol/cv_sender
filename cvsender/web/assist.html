@@ -44,6 +44,7 @@
   a.btn.open{background:var(--acc);color:#fff;border-color:var(--acc)}
   button.sent{background:var(--ok);color:#08210f;border-color:var(--ok)}
   button.skip{color:var(--mut)}
+  button.gone{color:var(--bad);border-color:rgba(231,76,60,.4)}
   .kbd{font-size:11px;color:var(--mut);text-align:center;margin-top:10px}
   .done{text-align:center;padding:50px 20px;color:var(--mut)}
   .done h2{color:var(--ok)}
@@ -55,12 +56,14 @@
 <body>
 <header>
   <span class="brand">⚡ Assist</span>
+  <a href="/dismissed" style="color:var(--mut);text-decoration:none;font-size:13px"
+     title="Jobs you marked as gone — restore any of them">🚫 dismissed</a>
   <span class="stat">sent today <b id="sentToday">0</b></span>
 </header>
 <main>
   <div class="progress"><i id="bar"></i></div>
   <div id="stage"></div>
-  <div class="kbd">Enter = I sent it · S = skip · O = open</div>
+  <div class="kbd">Enter = I sent it · G = not available · S = skip · O = open</div>
 </main>
 <div id="toast" class="toast"></div>
 <script src="/static/assist.js"></script>

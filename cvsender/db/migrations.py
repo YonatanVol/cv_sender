@@ -138,6 +138,36 @@ MIGRATIONS: list[str] = [
         updated_at REAL
     );
     """,
+
+    # 004 — jobs the user has permanently dismissed (expired postings, or ones
+    # they never want offered again). Kept separate from `applications` so they
+    # never count as sent, but consulted by the same dedupe path so they stop
+    # being re-staged on every future run.
+    """
+    CREATE TABLE dismissed (
+        dedupe_key TEXT PRIMARY KEY,
+        content_hash TEXT,
+        kind TEXT NOT NULL DEFAULT 'unavailable',
+        company TEXT, title TEXT,
+        at REAL
+    );
+    CREATE INDEX idx_dismissed_hash ON dismissed(content_hash);
+    """,
+
+    # 005 — tiered dismissal. Blocking forever on content_hash alone is wrong: a
+    # role closed today can be REPOSTED next month with identical text, and we'd
+    # hide a genuinely new opening. So identity matches (source+external id, or
+    # canonical URL) block permanently, while a content-only match expires.
+    """
+    ALTER TABLE dismissed ADD COLUMN apply_url TEXT;
+    ALTER TABLE dismissed ADD COLUMN canonical_url TEXT;
+    ALTER TABLE dismissed ADD COLUMN channel TEXT;
+    ALTER TABLE dismissed ADD COLUMN external_id TEXT;
+    ALTER TABLE dismissed ADD COLUMN note TEXT;
+    ALTER TABLE dismissed ADD COLUMN content_expires_at REAL;
+    ALTER TABLE dismissed ADD COLUMN restored_at REAL;
+    CREATE INDEX idx_dismissed_canon ON dismissed(canonical_url);
+    """,
 ]
 
 

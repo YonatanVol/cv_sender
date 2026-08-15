@@ -57,7 +57,9 @@ function render() {
            onclick="opened()">Open &amp; apply ↗</a>
         <button class="sent" onclick="markSent()">✓ I sent it</button>
         ${qs.length ? `<button onclick="saveAnswers()">Save answers</button>` : ''}
-        <button class="skip" onclick="next()">Skip</button>
+        <button class="gone" onclick="markGone()"
+                title="Posting is closed — never offer it again">🚫 Not available</button>
+        <button class="skip" onclick="next()" title="Come back to this later">Skip</button>
       </div>
     </div>`;
 }
@@ -86,6 +88,18 @@ async function markSent() {
   } catch (e) { toast('Failed: ' + e.message); }
 }
 
+// The posting is gone when you click through. Different from Skip (comes back)
+// and from "I sent it" (never sent — must not count). Never offered again.
+async function markGone() {
+  const it = queue[idx];
+  try {
+    await api('POST', `/api/items/${it.id}/unavailable`, { kind: 'unavailable' });
+    toast('Marked gone — you won’t see it again');
+    next();
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+window.markGone = markGone;
+
 async function saveAnswers() {
   const it = queue[idx];
   const answers = {};
@@ -107,6 +121,7 @@ window.next = next; window.opened = opened;
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
   if (e.key === 'Enter') markSent();
+  else if (e.key.toLowerCase() === 'g') markGone();
   else if (e.key.toLowerCase() === 's') next();
   else if (e.key.toLowerCase() === 'o') {
     const it = queue[idx];
