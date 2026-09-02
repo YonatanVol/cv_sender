@@ -111,6 +111,15 @@
   </div>
 
   <div class="card">
+    <h2>☁ Cloud backup</h2>
+    <div class="sub" id="cloudStatus" style="color:var(--mut);font-size:13px">checking…</div>
+    <div style="display:flex;gap:10px">
+      <button class="ghost" id="cloudPush">⬆︎ Back up now</button>
+      <button class="ghost" id="cloudRestore">⬇︎ Restore from cloud</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Session</h2>
     <button class="ghost" id="logout">Sign out</button>
   </div>
@@ -191,6 +200,20 @@ $('saveSettings').onclick=async()=>{
     toast('Settings saved ✓');
   }catch(e){toast(e.message);}
 };
+async function cloudStatus(){
+  try{ const c=await api('GET','/api/cloud/status');
+    $('cloudStatus').textContent = !c.enabled ? 'Cloud sync is off'
+      : c.connected ? 'Connected — CV, profile, settings and answers are mirrored'
+      : 'Cloud unreachable' + (c.error?` (${c.error})`:'') + ' — local data is still safe';
+  }catch{ $('cloudStatus').textContent='Cloud status unavailable'; }
+}
+$('cloudPush').onclick=async()=>{ try{ await api('POST','/api/cloud/push'); toast('Backed up ✓'); cloudStatus(); }catch(e){toast(e.message);} };
+$('cloudRestore').onclick=async()=>{
+  if(!confirm('Replace the data on this device with the cloud copy?')) return;
+  try{ const r=await api('POST','/api/cloud/restore');
+    toast(`Restored: ${r.profile?'profile ':''}${r.cv?'CV ':''}${r.settings} settings, ${r.answers} answers`); load(); }
+  catch(e){toast(e.message);} };
+cloudStatus();
 $('logout').onclick=async()=>{
   try{ await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
   catch(e){ toast('Sign out failed'); }

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, config, cv as cvmod
+from . import auth, cloud, config, cv as cvmod
 from .core.run_manager import manager
 from .db import store
 from .db.migrations import migrate
@@ -27,8 +28,20 @@ app = FastAPI(title="CV Sender v2")
 
 
 @app.on_event("startup")
+def _cloud_bg(fn, *args):
+    """Run a cloud sync off the request thread; it must never block the UI
+    or fail a request (the cloud is a mirror, the local DB is the truth)."""
+    def _run():
+        try:
+            fn(*args)
+        except Exception:  # noqa: BLE001
+            pass
+    threading.Thread(target=_run, daemon=True, name="cloud-sync").start()
+
+
 def _startup():
     migrate()
+    _cloud_bg(cloud.sync_on_start)   # bootstrap from / mirror to the cloud
     # Refuse to be reachable off-machine without a passphrase: these endpoints
     # fire real, irreversible applications.
     if config.HOST not in ("127.0.0.1", "localhost", "::1") \
@@ -189,6 +202,7 @@ async def put_profile(request: Request):
         "work_authorized_il": 1 if body.get("work_authorized_il", True) else 0,
     }
     store.save_profile(data)
+    _cloud_bg(cloud.push_profile)
     return JSONResponse(store.get_profile())
 
 
@@ -201,6 +215,10 @@ async def upload_cv(request: Request, cv: UploadFile = File(...)):
     except cvmod.CvError as e:
         raise HTTPException(400, str(e))
     store.save_profile(meta)
+    def _mirror_cv(path=meta["cv_path"]):
+        cloud.upload_cv(path)
+        cloud.push_profile()
+    _cloud_bg(_mirror_cv)
     return JSONResponse({"ok": True, **meta})
 
 
@@ -429,11 +447,34 @@ async def put_settings(request: Request):
         if k == "channels":
             val = ",".join(val if isinstance(val, list) else [])
         store.set_setting(f"run.{k}", str(val))
+    pairs = {k: (",".join(body[k]) if k == "channels" and isinstance(body[k], list)
+                 else str(body[k])) for k in RUN_DEFAULTS if k in body}
+    _cloud_bg(cloud.push_settings, pairs)
     return await get_settings_async()
 
 
 async def get_settings_async():
     return get_settings()
+
+
+@app.get("/api/cloud/status")
+def cloud_status():
+    return JSONResponse(cloud.status())
+
+
+@app.post("/api/cloud/restore")
+async def cloud_restore(request: Request):
+    """Explicit 'Restore from cloud': the cloud copy wins. Use on a new
+    device, or after a local wipe."""
+    _check_origin(request)
+    return JSONResponse(cloud.restore(overwrite=True))
+
+
+@app.post("/api/cloud/push")
+async def cloud_push(request: Request):
+    """Explicit 'Back up now': push everything local to the cloud."""
+    _check_origin(request)
+    return JSONResponse(cloud.sync_on_start())
 
 
 @app.get("/api/dismissed")
@@ -503,6 +544,8 @@ async def save_answers(item_id: int, request: Request):
             continue
         store.learn_answer(question, str(answer))
         learned += 1
+    if learned:
+        _cloud_bg(cloud.push_answers)
     # Re-queue the item so the next prepare picks up the new answers.
     if body.get("requeue", True):
         store.transition_item(item_id, ["needs_input", "failed"], "queued",

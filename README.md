@@ -158,6 +158,30 @@ unchanged.
   the recommended path — device-level auth and no public URL. Cloudflare Tunnel
   works if you want a public hostname.
 
+## Cloud backup (Supabase)
+
+Your **CV, profile, run settings and learned screening answers** are mirrored
+to a free Supabase project so they survive a wipe and follow you to a new
+machine. Run history stays local — it is large, machine-specific and worthless
+elsewhere.
+
+- **Local DB is the truth, the cloud is a mirror.** Every save (`PUT
+  /api/profile`, `POST /api/cv`, `PUT /api/settings`, learned answers) pushes in
+  a background thread; a failed push never fails the request.
+- **On startup** the app bootstraps itself from the cloud if this device is
+  empty, then pushes whatever is local (the CV only when its hash differs).
+- **Settings → ☁ Cloud backup** shows connection status, with *Back up now*
+  and *Restore from cloud* (cloud wins — for a new device or after a wipe).
+- **Security.** The embedded key is the *publishable* anon key — it is not the
+  gate. Every table and the private `cv` bucket are RLS-protected and only
+  answer requests carrying the **owner secret** (`x-cvs-owner`), generated once
+  into `data2/cloud.json` (gitignored, `chmod 600`). Anyone holding that file
+  can read your CV; copy it to a new machine to adopt the same cloud data.
+- Restored answers pass through the same prohibited-field filter as learned
+  ones, so a credential can never enter the answer bank via the cloud.
+- Free tier pauses the project after ~7 idle days; the daily runner's sync
+  keeps it alive, and it can be restored from the Supabase dashboard.
+
 ## Channels
 
 | Channel | Discovery | Form filling | Success signal |
