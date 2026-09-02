@@ -27,7 +27,6 @@ WEB = BASE / "web"
 app = FastAPI(title="CV Sender v2")
 
 
-@app.on_event("startup")
 def _cloud_bg(fn, *args):
     """Run a cloud sync off the request thread; it must never block the UI
     or fail a request (the cloud is a mirror, the local DB is the truth)."""
@@ -39,6 +38,7 @@ def _cloud_bg(fn, *args):
     threading.Thread(target=_run, daemon=True, name="cloud-sync").start()
 
 
+@app.on_event("startup")
 def _startup():
     migrate()
     _cloud_bg(cloud.sync_on_start)   # bootstrap from / mirror to the cloud
