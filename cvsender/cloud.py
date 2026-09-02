@@ -9,21 +9,30 @@ gate. Every table and the storage bucket are RLS-protected and only readable by
 a request that presents the owner secret in `x-cvs-owner`. That secret is
 generated once, stored locally in data2/cloud.json (gitignored) and never
 committed. Treat it like a password: anyone holding it can read your CV.
+
+The CV itself is **encrypted before it leaves the machine** (AES-256-GCM, key
+derived from the owner secret with scrypt). RLS alone is not enough for a file:
+Supabase's CDN can serve a cached object to a request that would fail RLS at
+the origin, so the stored blob must be useless on its own.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 from pathlib import Path
 from typing import Any, Optional
 
 import httpx
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from . import config
 from .db import store
 
 CLOUD_FILE = config.DATA_DIR / "cloud.json"
 BUCKET = "cv"
+CV_OBJECT = "cv.enc"          # encrypted blob; legacy plaintext was cv.pdf
+CV_MAGIC = b"CVS1"
 TIMEOUT = 20.0
 
 # Publishable (anon) key — safe to embed; RLS + the owner secret are the gate.
@@ -90,7 +99,7 @@ def push_profile() -> bool:
         row[k] = p.get(k)
     row["needs_sponsorship"] = bool(p.get("needs_sponsorship"))
     row["work_authorized_il"] = bool(p.get("work_authorized_il", 1))
-    row["cv_path"] = f"{cfg['owner']}/cv.pdf" if p.get("cv_path") else None
+    row["cv_path"] = f"{cfg['owner']}/{CV_OBJECT}" if p.get("cv_path") else None
     try:
         r = httpx.post(f"{cfg['url']}/rest/v1/app_profile", timeout=TIMEOUT,
                        headers=_headers(cfg, {
@@ -155,6 +164,35 @@ def pull_settings() -> dict:
 
 # --------------------------------- CV --------------------------------------
 
+def _cv_key(cfg: dict) -> bytes:
+    """32-byte AES key derived from the owner secret (stdlib scrypt)."""
+    return hashlib.scrypt(cfg["owner"].encode(), salt=b"cvsender/cv/v1",
+                          n=2 ** 14, r=8, p=1, dklen=32)
+
+
+def encrypt_cv(data: bytes, cfg: dict) -> bytes:
+    nonce = secrets.token_bytes(12)
+    return CV_MAGIC + nonce + AESGCM(_cv_key(cfg)).encrypt(nonce, data, CV_MAGIC)
+
+
+def decrypt_cv(blob: bytes, cfg: dict) -> Optional[bytes]:
+    """None on wrong key, tampering, or a blob that isn't ours."""
+    if not blob.startswith(CV_MAGIC) or len(blob) < len(CV_MAGIC) + 12 + 16:
+        return None
+    try:
+        return AESGCM(_cv_key(cfg)).decrypt(blob[4:16], blob[16:], CV_MAGIC)
+    except Exception:  # noqa: BLE001 — InvalidTag and friends
+        return None
+
+
+def _delete_object(cfg: dict, name: str) -> None:
+    try:
+        httpx.delete(f"{cfg['url']}/storage/v1/object/{BUCKET}/{cfg['owner']}/{name}",
+                     timeout=TIMEOUT, headers=_headers(cfg))
+    except httpx.HTTPError:
+        pass
+
+
 def upload_cv(path: str) -> bool:
     cfg = load_config()
     if not cfg.get("enabled"):
@@ -162,13 +200,15 @@ def upload_cv(path: str) -> bool:
     p = Path(path)
     if not p.exists():
         return False
-    obj = f"{cfg['owner']}/cv.pdf"
+    obj = f"{cfg['owner']}/{CV_OBJECT}"
     try:
         r = httpx.post(f"{cfg['url']}/storage/v1/object/{BUCKET}/{obj}",
                        timeout=60.0,
-                       headers=_headers(cfg, {"Content-Type": "application/pdf",
+                       headers=_headers(cfg, {"Content-Type": "application/octet-stream",
                                               "x-upsert": "true"}),
-                       content=p.read_bytes())
+                       content=encrypt_cv(p.read_bytes(), cfg))
+        if r.status_code < 300:
+            _delete_object(cfg, "cv.pdf")     # retire any legacy plaintext copy
         return r.status_code < 300
     except httpx.HTTPError:
         return False
@@ -179,15 +219,18 @@ def download_cv(dest: str) -> bool:
     cfg = load_config()
     if not cfg.get("enabled"):
         return False
-    obj = f"{cfg['owner']}/cv.pdf"
+    obj = f"{cfg['owner']}/{CV_OBJECT}"
     try:
         r = httpx.get(f"{cfg['url']}/storage/v1/object/{BUCKET}/{obj}",
                       timeout=60.0, headers=_headers(cfg))
-        if r.status_code >= 300 or not r.content.startswith(b"%PDF-"):
+        if r.status_code >= 300:
+            return False
+        data = decrypt_cv(r.content, cfg)
+        if not data or not data.startswith(b"%PDF-"):
             return False
         d = Path(dest)
         d.parent.mkdir(parents=True, exist_ok=True)
-        d.write_bytes(r.content)
+        d.write_bytes(data)
         return True
     except httpx.HTTPError:
         return False
@@ -302,10 +345,12 @@ def sync_on_start() -> dict:
         restored = restore(overwrite=False)
         local = store.get_profile() or {}
         pushed = {"profile": push_profile(), "answers": push_answers()}
-        # Upload the CV only if the cloud copy differs (or is missing).
+        # Upload the CV only if the cloud copy differs, is missing, or is a
+        # legacy plaintext object that must be replaced by the encrypted one.
         remote = pull_profile() or {}
-        if local.get("cv_path") and Path(local["cv_path"]).exists() and \
-                remote.get("cv_sha256") != local.get("cv_sha256"):
+        stale = (remote.get("cv_sha256") != local.get("cv_sha256")
+                 or not (remote.get("cv_path") or "").endswith(CV_OBJECT))
+        if local.get("cv_path") and Path(local["cv_path"]).exists() and stale:
             pushed["cv"] = upload_cv(local["cv_path"])
             push_profile()
         return {"restored": restored, "pushed": pushed}

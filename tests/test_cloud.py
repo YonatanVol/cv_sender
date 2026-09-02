@@ -118,3 +118,30 @@ def test_download_cv_rejects_non_pdf(env, monkeypatch):
     dest = env.tmp / "cv" / "cv.pdf"
     assert env.cloud.download_cv(str(dest)) is False
     assert not dest.exists()
+
+
+def test_cv_is_encrypted_at_rest_and_bound_to_owner(env):
+    cfg = env.cloud.load_config()
+    pdf = b"%PDF-1.7 hello"
+    blob = env.cloud.encrypt_cv(pdf, cfg)
+    assert blob.startswith(b"CVS1") and b"%PDF" not in blob
+    assert env.cloud.decrypt_cv(blob, cfg) == pdf
+    assert env.cloud.decrypt_cv(blob, {**cfg, "owner": "someone-else"}) is None
+    assert env.cloud.decrypt_cv(blob[:-1] + b"x", cfg) is None          # tamper
+    # what leaves the machine is the ciphertext, never the PDF
+    src = env.tmp / "cv.pdf"; src.write_bytes(pdf)
+    assert env.cloud.upload_cv(str(src)) is True
+    m, url, kw = [c for c in env.calls if c[0] == "POST"][-1]
+    assert url.endswith("/cv.enc") and kw["content"].startswith(b"CVS1")
+    assert pdf not in kw["content"]
+
+
+def test_download_cv_decrypts_round_trip(env, monkeypatch):
+    cfg = env.cloud.load_config()
+    pdf = b"%PDF-1.7 round trip"
+    blob = env.cloud.encrypt_cv(pdf, cfg)
+    monkeypatch.setattr(env.cloud.httpx, "get", lambda url, **kw: types.SimpleNamespace(
+        status_code=200, content=blob, json=lambda: []))
+    dest = env.tmp / "cv" / "cv.pdf"
+    assert env.cloud.download_cv(str(dest)) is True
+    assert dest.read_bytes() == pdf

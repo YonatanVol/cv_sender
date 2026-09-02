@@ -6,3 +6,4 @@ httpx
 playwright
 pyyaml
 pypdf
+cryptography>=42

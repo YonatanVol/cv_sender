@@ -177,6 +177,10 @@ elsewhere.
   answer requests carrying the **owner secret** (`x-cvs-owner`), generated once
   into `data2/cloud.json` (gitignored, `chmod 600`). Anyone holding that file
   can read your CV; copy it to a new machine to adopt the same cloud data.
+- **The CV is encrypted before upload** (AES-256-GCM, key derived from the
+  owner secret with scrypt). RLS is not enough for a file: Supabase's CDN was
+  observed serving a cached object to requests that fail RLS at the origin, so
+  the stored blob must be useless on its own — and now it is.
 - Restored answers pass through the same prohibited-field filter as learned
   ones, so a credential can never enter the answer bank via the cloud.
 - Free tier pauses the project after ~7 idle days; the daily runner's sync
