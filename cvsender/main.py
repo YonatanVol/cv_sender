@@ -401,6 +401,41 @@ async def mark_unavailable(item_id: int, request: Request):
     return JSONResponse({"ok": True, "dismissed": store.dismissed_count()})
 
 
+@app.get("/settings")
+def settings_page():
+    return FileResponse(str(WEB / "settings.html"))
+
+
+RUN_DEFAULTS = {"geography": "israel_remote", "strictness": "balanced",
+                "target": "100", "channels": "greenhouse,lever,ashby,comeet,linkedin"}
+
+
+@app.get("/api/settings")
+def get_settings():
+    """Run defaults, editable from any device (they live in the DB, not a file)."""
+    out = {k: (store.get_setting(f"run.{k}") or v) for k, v in RUN_DEFAULTS.items()}
+    out["channels"] = [c for c in out["channels"].split(",") if c]
+    return JSONResponse(out)
+
+
+@app.put("/api/settings")
+async def put_settings(request: Request):
+    _check_origin(request)
+    body = await request.json()
+    for k in RUN_DEFAULTS:
+        if k not in body:
+            continue
+        val = body[k]
+        if k == "channels":
+            val = ",".join(val if isinstance(val, list) else [])
+        store.set_setting(f"run.{k}", str(val))
+    return await get_settings_async()
+
+
+async def get_settings_async():
+    return get_settings()
+
+
 @app.get("/api/dismissed")
 def dismissed_list():
     """Jobs you've dismissed, with why/when — and whether the block is permanent
