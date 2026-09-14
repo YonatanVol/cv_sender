@@ -46,6 +46,16 @@ def _has(text: str, en: list[str], he: list[str]) -> Optional[str]:
     return _has_en(text, en) or _has_he(text, he)
 
 
+def _has_he_word(text: str, words: list[str]) -> Optional[str]:
+    """Hebrew match anchored at a word start, allowing the one-letter prefixes
+    ו/ה/ב/ל/מ/ש/כ. Without the anchor 'רכז' (coordinator) matches 'מרכז'
+    (center) — except when מ is itself a prefix, which we accept."""
+    for w in words:
+        if re.search(r"(?<![\u05d0-\u05ea])[והבלש]?" + re.escape(w), text):
+            return w
+    return None
+
+
 _YEARS = [
     re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*\+?\s*years", re.I),
     re.compile(r"(\d+)\s*\+\s*years", re.I),
@@ -81,8 +91,23 @@ def score_job(job, mode: str = "israel_remote",
     # --- role gate (title-based for precision; description is used only for
     # seniority/YoE below, so a 'Public Policy Intern' JD that mentions software
     # doesn't sneak in) ---
-    if not _has(title, K.ROLE_EN, K.ROLE_HE):
+    strong = _has(title, K.ROLE_STRONG_EN, K.ROLE_STRONG_HE)
+    weak = _has(title, K.ROLE_WEAK_EN, K.ROLE_WEAK_HE)
+    non_sw = _has_en(title, K.NON_SOFTWARE_EN) or \
+        _has_he_word(title, K.NON_SOFTWARE_HE)
+    if non_sw and not strong:
+        return Verdict(False, 0, "role", f"not a software role ({non_sw})")
+    if not strong and not weak:
         return Verdict(False, 0, "role", "not a software role")
+    review: Optional[str] = None
+    borderline = _has_en(title, K.BORDERLINE_EN) or \
+        _has_he_word(title, K.BORDERLINE_HE)
+    if borderline:
+        review = borderline
+    elif non_sw:
+        review = non_sw
+    elif not strong:
+        review = weak
 
     # --- geography gate ---
     in_il = bool(_has(loc, K.ISRAEL_HINTS_EN, K.ISRAEL_HINTS_HE)) or \
@@ -130,4 +155,7 @@ def score_job(job, mode: str = "israel_remote",
         return Verdict(False, score, "score",
                        f"score {score:g} below {strictness} threshold {threshold}",
                        signals)
+    if review:
+        signals.append(f"review:{review}")
+        return Verdict(True, score, "kept", f"borderline role ({review}): review before sending", signals)
     return Verdict(True, score, "kept", "match", signals)
