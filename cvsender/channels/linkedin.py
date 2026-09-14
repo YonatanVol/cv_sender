@@ -36,6 +36,55 @@ DISCARD = ["Discard", "מחיקה", "מחק", "השלכה"]
 CHECKPOINT = ("/checkpoint", "/authwall", "/uas/login")
 
 
+# Scroll the virtualised results pane (the nearest scrollable ancestor of a job
+# card) one screen at a time. Returns false once it can't scroll further.
+_SCROLL_PANE_JS = """() => {
+  const card = document.querySelector('[data-occludable-job-id], [data-job-id]');
+  let el = card && card.parentElement;
+  while (el && el !== document.body) {
+    const st = getComputedStyle(el);
+    if (/(auto|scroll)/.test(st.overflowY) && el.scrollHeight > el.clientHeight + 10) break;
+    el = el.parentElement;
+  }
+  if (!el || el === document.body) { window.scrollBy(0, 2000); return false; }
+  const before = el.scrollTop;
+  el.scrollTop = before + el.clientHeight;
+  return el.scrollTop > before;
+}"""
+
+_READ_CARDS_JS = """() => {
+  const out = {};
+  for (const c of document.querySelectorAll('[data-occludable-job-id], [data-job-id]')) {
+    const id = c.getAttribute('data-occludable-job-id') || c.getAttribute('data-job-id');
+    const lines = (c.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+    if (!id || !lines.length) continue;
+    if (!out[id] || lines.length > out[id].lines.length) out[id] = {id, lines};
+  }
+  return Object.values(out);
+}"""
+
+
+def cards_to_jobs(rows: list, location: str, query: str) -> list[Job]:
+    """Turn raw card rows {id, lines:[title, (title again), company, location…]}
+    into Jobs. Pure, so it is unit-tested without a browser."""
+    jobs = []
+    for r in rows or []:
+        jid = str(r.get("id") or "").strip()
+        lines = [l for l in (r.get("lines") or []) if l]
+        if not jid.isdigit() or not lines:
+            continue
+        title = lines[0]
+        rest = [l for l in lines[1:] if l != title and not l.startswith(title + " ")]
+        company = rest[0][:60] if rest else "LinkedIn"
+        loc = rest[1] if len(rest) > 1 else location
+        jobs.append(Job(channel="linkedin", company=company, external_id=jid,
+                        title=title, location=loc,
+                        url=f"https://www.linkedin.com/jobs/view/{jid}/",
+                        apply_url=f"https://www.linkedin.com/jobs/view/{jid}/",
+                        description=""))
+    return jobs
+
+
 async def _card_company(anchor) -> str:
     """Pull the employer name off a search-result card so the UI shows the real
     company instead of 'linkedin' on every row."""
@@ -76,45 +125,46 @@ class LinkedInChannel:
 
     # ------------------------------ discover ------------------------------
     async def discover(self, page, geography: str = "israel_remote") -> list[Job]:
+        """Collect Easy Apply junior roles from LinkedIn search.
+
+        2026-09: result cards are virtualised. Only cards scrolled into view
+        inside the results pane render a link, and wheel-scrolling the page does
+        not scroll that pane, so the old anchor scan saw ~7 of ~25 jobs per page.
+        We now scroll the pane itself and read every card's job id, title,
+        company and location, across the first two result pages.
+        """
         location = "Israel"
         seen: dict[str, Job] = {}
         for q in QUERIES:
-            params = {"keywords": q, "location": location, "f_AL": "true",
-                      "f_E": "1,2", "sortBy": "DD"}
-            try:
-                await page.goto(SEARCH + "?" + urlencode(params),
-                                wait_until="domcontentloaded", timeout=40000)
-                await page.wait_for_timeout(2500)
-            except Exception:
-                continue
-            for _ in range(4):
+            for start in (0, 25):
+                params = {"keywords": q, "location": location, "f_AL": "true",
+                          "f_E": "1,2", "sortBy": "DD"}
+                if start:
+                    params["start"] = str(start)
                 try:
-                    await page.mouse.wheel(0, 2500)
-                    await page.wait_for_timeout(800)
+                    await page.goto(SEARCH + "?" + urlencode(params),
+                                    wait_until="domcontentloaded", timeout=40000)
+                    await page.wait_for_timeout(2500)
                 except Exception:
                     break
-            try:
-                anchors = await page.query_selector_all("a[href*='/jobs/view/']")
-            except Exception:
-                anchors = []
-            for a in anchors:
+                if any(c in (page.url or "").lower() for c in CHECKPOINT):
+                    return list(seen.values())
                 try:
-                    href = await a.get_attribute("href") or ""
-                    if "/jobs/view/" not in href:
-                        continue
-                    jid = href.split("/jobs/view/")[1].split("/")[0].split("?")[0]
-                    if not jid or jid in seen:
-                        continue
-                    title = ((await a.inner_text()) or "").strip().split("\n")[0]
-                    company = await _card_company(a) or "LinkedIn"
-                    seen[jid] = Job(
-                        channel="linkedin", company=company,
-                        external_id=jid, title=title or q, location=location,
-                        url=f"https://www.linkedin.com/jobs/view/{jid}/",
-                        apply_url=f"https://www.linkedin.com/jobs/view/{jid}/",
-                        description="")
+                    for _ in range(10):
+                        moved = await page.evaluate(_SCROLL_PANE_JS)
+                        await page.wait_for_timeout(450)
+                        if not moved:
+                            break
+                    rows = await page.evaluate(_READ_CARDS_JS)
                 except Exception:
-                    continue
+                    rows = []
+                fresh = 0
+                for job in cards_to_jobs(rows, location, q):
+                    if job.external_id not in seen:
+                        seen[job.external_id] = job
+                        fresh += 1
+                if len(rows) < 20 or not fresh:
+                    break              # last page, or nothing new on page 2
         return list(seen.values())
 
     # ------------------------------ prepare -------------------------------
