@@ -51,3 +51,21 @@ def test_sent_true_only_with_visible_confirmation():
     assert run(LinkedInChannel()._sent(Page({"Application sent": El()}))) is True
     assert run(LinkedInChannel()._sent(Page({"Application sent": El(visible=False)}))) is False
     assert run(LinkedInChannel()._sent(Page({}))) is False
+
+
+def test_cards_to_jobs_parses_virtualised_cards():
+    from cvsender.channels.linkedin import cards_to_jobs
+    rows = [
+        {"id": "4465241015", "lines": ["Junior Systems Implementer", "Junior Systems Implementer with verification",
+                                       "Comigo.io", "Petah Tikva, Center District, Israel (On-site)", "16 minutes ago"]},
+        {"id": "4465235111", "lines": ["Hebrew Transcriber (Freelance)", "DatoviaPlayHouse", "Tel Aviv-Yafo (Remote)"]},
+        {"id": "not-a-number", "lines": ["x"]},
+        {"id": "123", "lines": []},
+    ]
+    jobs = cards_to_jobs(rows, "Israel", "junior developer")
+    assert [j.external_id for j in jobs] == ["4465241015", "4465235111"]
+    assert jobs[0].title == "Junior Systems Implementer" and jobs[0].company == "Comigo.io"
+    assert jobs[0].location.startswith("Petah Tikva")
+    assert jobs[1].company == "DatoviaPlayHouse"
+    assert jobs[0].apply_url == "https://www.linkedin.com/jobs/view/4465241015/"
+    assert jobs[0].dedupe_key == "linkedin:comigo.io:4465241015"
