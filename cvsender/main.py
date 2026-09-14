@@ -58,7 +58,26 @@ def _startup():
         print(f"[startup] rescued {stuck} item(s) stuck in 'sending'")
 
 
-app.mount("/data2", StaticFiles(directory=str(config.DATA_DIR)), name="data2")
+# Only form screenshots are served from the data directory. The folder also
+# holds the owner secret (cloud.json), the database and the LinkedIn cookies,
+# so it must never be mounted as a whole.
+_SHOT_TYPES = {".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg"}
+
+
+@app.get("/data2/shots/{name}")
+def screenshot(name: str):
+    root = config.SCREENSHOT_DIR.resolve()
+    try:
+        path = (root / name).resolve()
+    except (OSError, ValueError):
+        raise HTTPException(404, "not found")
+    if path.parent != root or path.suffix.lower() not in _SHOT_TYPES \
+            or not path.is_file():
+        raise HTTPException(404, "not found")
+    return FileResponse(path, media_type=_SHOT_TYPES[path.suffix.lower()],
+                        headers={"Cache-Control": "private, max-age=86400"})
+
+
 app.mount("/static", StaticFiles(directory=str(WEB)), name="static")
 
 
