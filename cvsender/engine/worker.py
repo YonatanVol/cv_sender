@@ -90,7 +90,8 @@ async def _prepare_ats(run_id, options, cancel, cap, profile, cv_path,
         if not v.keep:
             funnel[v.stage] = funnel.get(v.stage, 0) + 1
             continue
-        if store.already_handled(job.dedupe_key, job.content_hash, job.apply_url):
+        if store.already_handled(job.dedupe_key, job.content_hash, job.apply_url) \
+                or store.waiting_in_queue(job.dedupe_key):
             funnel["deduped"] += 1
             continue
         funnel["kept"] += 1
@@ -208,7 +209,8 @@ async def _prepare_linkedin(run_id, options, cancel, cap, profile, cv_path):
         v = score_job(job, mode=geography, strictness=strictness)
         if not v.keep:
             continue
-        if store.already_handled(job.dedupe_key, job.content_hash, job.apply_url):
+        if store.already_handled(job.dedupe_key, job.content_hash, job.apply_url) \
+                or store.waiting_in_queue(job.dedupe_key):
             continue
         kept.append({"job": job, "score": v.score, "signals": v.signals})
     kept.sort(key=lambda k: k["score"], reverse=True)

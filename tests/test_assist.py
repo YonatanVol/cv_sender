@@ -96,3 +96,17 @@ def test_user_confirmed_send_is_recorded_once(db):
     db.record_application(item, '{"method":"user"}')
     db.record_application(item, '{"method":"user"}')   # idempotent
     assert db.already_sent(item["dedupe_key"]) is True
+
+
+def test_recently_parked_posting_is_not_restaged(db):
+    run = db.create_run_atomic({}, "live")
+    iid = _item(db, run, key="linkedin:acme:9")            # needs_input now
+    assert db.waiting_in_queue("linkedin:acme:9") is True
+    assert db.waiting_in_queue("linkedin:other:1") is False
+    db.transition_item(iid, ["needs_input"], "skipped")
+    assert db.waiting_in_queue("linkedin:acme:9") is False  # no longer parked
+    db.transition_item(iid, ["skipped"], "needs_input")
+    from cvsender.db.connection import tx
+    with tx() as c:                                         # parked 8 days ago
+        c.execute("UPDATE run_items SET updated_at = updated_at - 8*86400 WHERE id=?", (iid,))
+    assert db.waiting_in_queue("linkedin:acme:9") is False  # parked, but stale

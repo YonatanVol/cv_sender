@@ -353,6 +353,17 @@ def already_handled(dedupe_key: str, content_hash: Optional[str] = None,
         is_dismissed(dedupe_key, content_hash, url)
 
 
+def waiting_in_queue(dedupe_key: str, within_s: float = 7 * 86400) -> bool:
+    """True when this posting was prepared recently and is still parked for a
+    human (needs_input / ready / failed). Re-preparing it would only repeat the
+    same blocker and, on LinkedIn, spend page views for nothing."""
+    with ro() as c:
+        return c.execute(
+            "SELECT 1 FROM run_items WHERE dedupe_key=? AND state IN "
+            "('needs_input','ready','failed') AND updated_at >= ? LIMIT 1",
+            (dedupe_key, _now() - within_s)).fetchone() is not None
+
+
 def already_sent(dedupe_key: str, content_hash: Optional[str] = None) -> bool:
     """Terminal dedupe: only a verified 'sent' application blocks re-offering."""
     with ro() as c:
