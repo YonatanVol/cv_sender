@@ -193,8 +193,15 @@ class LinkedInChannel:
 
     # ------------------------------ helpers -------------------------------
     async def _open_modal(self, page) -> bool:
-        for sel in ("button.jobs-apply-button",
+        # 2026-09: LinkedIn replaced the Easy Apply <button> with an <a> that opens
+        # the server-driven apply flow (…/apply/?openSDUIApplyFlow=true), labelled
+        # in the UI language. External-apply links never carry openSDUIApplyFlow.
+        for sel in ("a[href*='openSDUIApplyFlow']",
+                    "a[aria-label*='Easy Apply']",
+                    "a[aria-label*='הגשת מועמדות בקלות']",
+                    "button.jobs-apply-button",
                     "button[aria-label*='Easy Apply']",
+                    "button[aria-label*='הגשת מועמדות בקלות']",
                     "button:has-text('Easy Apply')"):
             try:
                 b = await page.query_selector(sel)
@@ -345,11 +352,17 @@ class LinkedInChannel:
             return False
 
     async def _sent(self, page) -> bool:
-        for t in ("Application sent", "application was sent", "המועמדות נשלחה",
-                  "נשלחה"):
+        """Positive evidence only. The confirmation text must be visible AND the
+        submit button must be gone, so an unrelated "נשלחה" elsewhere on the page
+        (a messaging preview, a notification) can never count as a send."""
+        if await self._find(page, SUBMIT):
+            return False
+        for t in ("Application sent", "Your application was sent",
+                  "המועמדות שלך נשלחה", "המועמדות נשלחה"):
             try:
-                if await page.query_selector(f"h2:has-text('{t}'), h3:has-text('{t}'), "
-                                             f"div:has-text('{t}')"):
+                el = await page.query_selector(
+                    f"div[role='dialog'] :text('{t}'), h2:has-text('{t}'), h3:has-text('{t}')")
+                if el and await el.is_visible():
                     return True
             except Exception:
                 continue
