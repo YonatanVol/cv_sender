@@ -74,3 +74,57 @@ def test_word_boundary_no_false_intern():
     # 'International' must not match 'intern'
     v = score_job(J("Manager, International Software"), strictness="balanced")
     assert not v.keep   # 'manager' senior wins, not a fake junior from 'intern'
+
+
+# ---- 2026-09-14: tighter role gate, from the real titles sent that night ----
+import pytest
+
+AUTO = [   # clear software roles: may be sent without extra review
+    "Junior Software Engineer", "Full Stack Developer", "Full Stack Engineer",
+    "Generative AI Engineer", "Founding Engineer - Full-Stack & Infrastructure",
+    "Java Software Engineer", "Algorithm Engineer", "QA Automation Engineer",
+    "3D Algorithm Developer", "Motion Control - Real Time Embedded Engineer",
+    "מפתח/ת תוכנה ג'וניור",
+]
+REVIEW = [  # software-adjacent: prepare, but hold for the human
+    "IT Engineer", "Configuration Engineer- מהנדס\\ת תצורה",
+    "Siebel CRM Developer-2789", "Technical Manual QA Engineer",
+    "Streaming Platform Engineer", "Junior Systems Implementer (מיישם/ת מערכות)",
+    "SAP ABAP Developer", "Manual QA Tester – Digital & Web",
+    "Software Engineer, Recruiting Platform",   # software + non-software word
+    "Software Sales Specialist",
+]
+DROP = [    # not software at all
+    'רכז/ת הדרכה ופיתוח ארגוני החלפה לחל"ד עם אופציה',
+    "Hebrew Transcriber (Freelance)", "Junior Customer Support Specialist",
+    "IT Support Technician (Student Position)", "Product Designer, AI Builder",
+    "Safety Officer", "Microbiologist & Researcher", "Sales Engineer",
+    "HR Business Partner", "מנהל/ת פיתוח עסקי", "Talent Acquisition Specialist",
+]
+
+
+def _review(v):
+    return any(s.startswith("review:") for s in v.signals)
+
+
+@pytest.mark.parametrize("title", AUTO)
+def test_clear_software_roles_auto(title):
+    v = score_job(J(title))
+    assert v.keep and not _review(v), (title, v.reason, v.signals)
+
+
+@pytest.mark.parametrize("title", REVIEW)
+def test_borderline_roles_are_kept_for_review(title):
+    v = score_job(J(title))
+    assert v.keep and _review(v), (title, v.reason, v.signals)
+
+
+@pytest.mark.parametrize("title", DROP)
+def test_non_software_roles_dropped(title):
+    v = score_job(J(title))
+    assert not v.keep and v.stage == "role", (title, v.reason, v.signals)
+
+
+def test_hebrew_exclusion_needs_word_start():
+    # 'מרכז' (center) contains 'רכז' (coordinator) but is not an exclusion
+    assert score_job(J("מפתח/ת תוכנה במרכז הפיתוח")).keep

@@ -110,3 +110,23 @@ def test_recently_parked_posting_is_not_restaged(db):
     with tx() as c:                                         # parked 8 days ago
         c.execute("UPDATE run_items SET updated_at = updated_at - 8*86400 WHERE id=?", (iid,))
     assert db.waiting_in_queue("linkedin:acme:9") is False  # parked, but stale
+
+
+def test_borderline_role_is_held_even_when_form_is_ready(db):
+    """A ready form for a software-adjacent title must wait for the human."""
+    import json as _json
+    from cvsender.channels.base import PrepareResult, READY
+    from cvsender.engine import worker
+    run = db.create_run_atomic({}, "live")
+    for key, signals, expect in [("linkedin:it:1", ["review:it"], "needs_input"),
+                                 ("linkedin:dev:2", ["junior:junior"], "ready")]:
+        iid = db.add_item(run, {"channel": "linkedin", "company": "c", "title": "t",
+                                "apply_url": "u", "dedupe_key": key, "content_hash": key,
+                                "score_json": {"signals": signals}, "state": "preparing"})
+        it = db.get_item(iid)
+        worker._apply_prepare_result(run, it, PrepareResult(state=READY, reason="ready"),
+                                     "/cv.pdf", {"cv_sha256": "x"})
+        got = db.get_item(iid)
+        assert got["state"] == expect, (key, got["state"], got["reason"])
+        if expect == "needs_input":
+            assert "Borderline role (it)" in got["reason"]

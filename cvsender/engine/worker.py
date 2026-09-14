@@ -273,6 +273,18 @@ async def run_takeover(item_id: int, cancel) -> None:
                 "reason": "window open — finish it, then press 'I sent it'"})
 
 
+def _review_reason(it: dict) -> str:
+    """The funnel's 'review:<why>' signal stored with the item, or ''."""
+    try:
+        signals = json.loads(it.get("score_json") or "{}").get("signals") or []
+    except (TypeError, ValueError):
+        signals = []
+    for sig in signals:
+        if isinstance(sig, str) and sig.startswith("review:"):
+            return sig.split(":", 1)[1]
+    return ""
+
+
 def _apply_prepare_result(run_id, it, res, cv_path, profile):
     if res is None:
         store.transition_item(it["id"], ["preparing"], "failed",
@@ -296,6 +308,12 @@ def _apply_prepare_result(run_id, it, res, cv_path, profile):
     state = {READY: "ready", NEEDS_INPUT: "needs_input",
              FAILED: "failed", SKIPPED: "skipped"}.get(res.state, "failed")
     fields = {"reason": res.reason, "result_json": json.dumps(result_json)}
+    review = _review_reason(it)
+    if state == "ready" and review:
+        # Filled and ready, but the title is only software-adjacent: never let
+        # it be sent without the human looking at it first.
+        state = "needs_input"
+        fields["reason"] = f"Borderline role ({review}): check it fits, then apply"
     if res.screenshot:
         fields["screenshot_prepare"] = res.screenshot
     fields["attempts"] = (it.get("attempts") or 0) + 1
