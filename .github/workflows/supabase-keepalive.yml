@@ -1,7 +1,7 @@
 # Supabase's free tier pauses a project after 7 days without database activity,
 # which silently breaks the cloud backup. This makes one tiny read every 3 days.
-# It uses only the publishable anon key already shipped in cvsender/cloud.py and
-# reads nothing: with no owner secret, row-level security returns zero rows.
+# The key below is the publishable anon key (already public in cvsender/cloud.py).
+# It reads nothing: without the owner secret, row-level security returns zero rows.
 name: Supabase keep-alive
 
 on:
@@ -19,10 +19,9 @@ jobs:
       - name: Touch the database
         env:
           URL: https://ntvuxtvepmqzdcxphurj.supabase.co
+          ANON: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im50dnV4dHZlcG1xemRjeHBodXJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4NzM2MDksImV4cCI6MjEwMjQ0OTYwOX0.L1KRiiLCgwOp6fSrpvEfxV4vSdJ-pff0GpU2RnXCqAk
         run: |
-          ANON=$(curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/cvsender/cloud.py" \
-            | tr -d '\n' | grep -o 'DEFAULT_ANON = ([^)]*)' | grep -o '"[^"]*"' | tr -d '" ')
-          code=$(curl -s --retry 3 -o /dev/null -w '%{http_code}' \
+          code=$(curl -s --http1.1 --retry 3 -o /dev/null -w '%{http_code}' \
             -H "apikey: $ANON" -H "Authorization: Bearer $ANON" \
             "$URL/rest/v1/app_settings?select=key&limit=1")
           echo "HTTP $code"
