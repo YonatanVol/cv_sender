@@ -70,11 +70,20 @@ def test_assist_queue_lists_finishable_and_hides_sent(db):
     assert blocked in keys and done not in keys
 
 
-def test_daily_counter(db):
+def test_sent_today_counts_real_applications(db):
+    """Every send path writes an application; the badge counts those, so
+    automatic LinkedIn sends show up and a duplicate never double-counts."""
     assert db.sent_today() == 0
-    db.bump_daily("linkedin")
-    db.bump_daily("linkedin")
-    db.bump_daily("greenhouse")
+    run = db.create_run_atomic({}, "live")
+    keys = [("linkedin:a:1", "linkedin"), ("linkedin:b:2", "linkedin"),
+            ("greenhouse:c:3", "greenhouse")]
+    items = []
+    for key, channel in keys:
+        iid = _item(db, run, key=key)
+        items.append({**db.get_item(iid), "channel": channel})
+    for it in items:
+        db.record_application(it, '{"method":"dom"}')
+    db.record_application(items[0], '{"method":"dom"}')        # duplicate
     assert db.sent_today("linkedin") == 2
     assert db.sent_today() == 3
 

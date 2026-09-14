@@ -287,8 +287,14 @@ class LinkedInChannel:
                                          cv_attached=True, screenshot=shot,
                                          reason="ready (reached submit)")
                 await self._click(sub)
-                await page.wait_for_timeout(2500)
-                ok = await self._sent(page)
+                # The confirmation view can take several seconds to render; two
+                # of seven real sends on 2026-09-14 were missed at a fixed 2.5s.
+                ok = False
+                for _ in range(12):
+                    await page.wait_for_timeout(1000)
+                    if await self._sent(page):
+                        ok = True
+                        break
                 return PrepareResult(state=("submitted" if ok else "failed"),
                                      reason="" if ok else "no 'Application sent' view")
             nxt = await self._find(page, REVIEW + NEXT)

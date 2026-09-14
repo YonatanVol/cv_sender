@@ -457,15 +457,25 @@ def bump_daily(channel: str) -> None:
             (_today(), channel))
 
 
+def _local_midnight() -> float:
+    lt = time.localtime()
+    return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+
+
 def sent_today(channel: Optional[str] = None) -> int:
+    """Applications actually sent since local midnight.
+
+    Reads the applications table, the one record every verified or
+    user-confirmed send writes. The old daily_counts table was only bumped by
+    'I sent it', so automatic LinkedIn sends never showed up in the badge.
+    """
+    q = "SELECT COUNT(*) n FROM applications WHERE sent_at >= ?"
+    args: list = [_local_midnight()]
+    if channel:
+        q += " AND channel = ?"
+        args.append(channel)
     with ro() as c:
-        if channel:
-            r = c.execute("SELECT sent FROM daily_counts WHERE day=? AND channel=?",
-                          (_today(), channel)).fetchone()
-            return r["sent"] if r else 0
-        r = c.execute("SELECT COALESCE(SUM(sent),0) n FROM daily_counts WHERE day=?",
-                      (_today(),)).fetchone()
-        return r["n"] if r else 0
+        return c.execute(q, args).fetchone()["n"]
 
 
 # --------------------------- assist queue ----------------------------------
