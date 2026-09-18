@@ -84,13 +84,15 @@ AUTO = [   # clear software roles: may be sent without extra review
     "Generative AI Engineer", "Founding Engineer - Full-Stack & Infrastructure",
     "Java Software Engineer", "Algorithm Engineer", "QA Automation Engineer",
     "3D Algorithm Developer", "Motion Control - Real Time Embedded Engineer",
-    "מפתח/ת תוכנה ג'וניור",
+    "מפתח/ת תוכנה ג'וניור", "מהנדס אוטומציית בדיקות",
 ]
 REVIEW = [  # software-adjacent: prepare, but hold for the human
     "IT Engineer", "Configuration Engineer- מהנדס\\ת תצורה",
     "Siebel CRM Developer-2789", "Technical Manual QA Engineer",
     "Streaming Platform Engineer", "Junior Systems Implementer (מיישם/ת מערכות)",
     "SAP ABAP Developer", "Manual QA Tester – Digital & Web",
+    "מהנדס/ת בקרה ואוטומציה",          # industrial control, not software
+    "מהנדס/ת חשמל", "בקרת איכות",
     "Software Engineer, Recruiting Platform",   # software + non-software word
     "Software Sales Specialist",
 ]

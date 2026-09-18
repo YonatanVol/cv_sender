@@ -17,13 +17,16 @@ ROLE_STRONG_EN = [
 ]
 ROLE_STRONG_HE = [
     "תוכנה", "מפתח", "מתכנת", "פולסטאק", "פול סטאק", "פרונטאנד", "פרונט אנד",
-    "בקאנד", "בק אנד", "אלגוריתמ", "אוטומציה", "דבאופס",
+    "בקאנד", "בק אנד", "אלגוריתמ", "דבאופס", "אוטומציית בדיקות",
 ]
 ROLE_WEAK_EN = [
     "engineer", "web", "mobile", "automation", "qa", "quality assurance",
     "tester", "data", "implementer", "integration", "technical",
 ]
-ROLE_WEAK_HE = ["פיתוח", "מהנדס", "בודק", "בדיקות", "מערכות", "מיישם"]
+# 'אוטומציה' on its own is usually industrial control ("בקרה ואוטומציה"),
+# not test automation — weak, so it is held for review rather than sent.
+ROLE_WEAK_HE = ["פיתוח", "מהנדס", "בודק", "בדיקות", "מערכות", "מיישם",
+                "אוטומציה", "אוטומטי"]
 
 # Software-adjacent work: kept, but always held for review before sending.
 BORDERLINE_EN = [
@@ -32,7 +35,8 @@ BORDERLINE_EN = [
     "support engineer", "system engineer", "systems engineer", "helpdesk",
     "bi developer", "power bi",
 ]
-BORDERLINE_HE = ["מיישם", "תצורה", "הטמעה", "מערכות מידע", "תמיכה טכנית"]
+BORDERLINE_HE = ["מיישם", "תצורה", "הטמעה", "מערכות מידע", "תמיכה טכנית",
+                 "בקרה", "בקרת", "חשמל", "מכונות", "תפעול"]
 
 # Not software. Drops a title unless it ALSO carries a strong software signal
 # ("Software Engineer, Recruiting Platform" stays).
