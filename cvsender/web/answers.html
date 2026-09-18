@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Answers — CV Sender</title>
+<link rel="manifest" href="/static/manifest.webmanifest">
+<meta name="theme-color" content="#0f1115">
+<style>
+  :root{--bg:#0f1115;--card:#1a1d24;--line:#2a2f3a;--fg:#e7e9ee;--mut:#9aa3b2;
+        --acc:#4f8cff;--ok:#2ecc71;--warn:#f1c40f}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:16px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;padding:0 0 90px}
+  header{display:flex;align-items:center;gap:12px;padding:14px 16px;
+         border-bottom:1px solid var(--line);background:var(--card);
+         position:sticky;top:0;z-index:5}
+  .brand{color:var(--acc);font-weight:800;text-decoration:none;font-size:15px}
+  h1{font-size:16px;margin:0}
+  main{max-width:640px;margin:14px auto;padding:0 14px}
+  .lede{color:var(--mut);font-size:14px;margin:0 0 14px}
+  .lede b{color:var(--fg)}
+  .q{background:var(--card);border:1px solid var(--line);border-radius:14px;
+     padding:14px;margin-bottom:12px}
+  .qh{display:flex;gap:10px;align-items:flex-start;margin-bottom:10px}
+  .blocking{flex:0 0 auto;background:rgba(241,196,15,.14);color:var(--warn);
+            border-radius:20px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+  .label{font-weight:600;line-height:1.35}
+  .eg{color:var(--mut);font-size:12px;margin-top:4px}
+  input,select{width:100%;padding:12px;font-size:16px;border-radius:10px;
+        border:1px solid var(--line);background:#11141a;color:var(--fg)}
+  .opts{display:flex;flex-wrap:wrap;gap:8px}
+  .opt{padding:9px 14px;border-radius:22px;border:1px solid var(--line);
+       background:#11141a;color:var(--mut);font-size:14px;cursor:pointer}
+  .opt.on{border-color:var(--acc);color:var(--acc);font-weight:700}
+  .bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);
+       border-top:1px solid var(--line);padding:12px 14px calc(12px + env(safe-area-inset-bottom));
+       display:flex;gap:10px;align-items:center}
+  .bar span{color:var(--mut);font-size:13px;flex:1}
+  button{padding:14px 20px;font-size:16px;font-weight:700;border:0;border-radius:12px;
+         background:var(--acc);color:#fff;cursor:pointer}
+  button[disabled]{opacity:.5;cursor:default}
+  .done{text-align:center;padding:60px 20px;color:var(--mut)}
+  .done h2{color:var(--ok)}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:86px;
+         background:var(--card);border:1px solid var(--line);border-radius:11px;
+         padding:12px 18px;font-size:15px;z-index:30;max-width:92vw;text-align:center}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/assist">← Assist</a>
+  <h1>Screening answers</h1>
+</header>
+<main>
+  <p class="lede" id="lede">Loading…</p>
+  <div id="list"></div>
+</main>
+<div class="bar"><span id="count">0 answered</span>
+  <button id="save" disabled>Save &amp; retry</button></div>
+<div id="toast" class="toast hide"></div>
+<script>
+const $ = id => document.getElementById(id);
+let gaps = [], answers = {};
+
+function toast(m){const t=$('toast');t.textContent=m;t.classList.remove('hide');
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.add('hide'),3000);}
+async function api(method,url,body){
+  const o={method,headers:{}};
+  if(body!==undefined){o.headers['Content-Type']='application/json';o.body=JSON.stringify(body);}
+  const r=await fetch(url,o);
+  if(!r.ok){let m=r.statusText;try{m=(await r.json()).detail||m;}catch{}throw new Error(m);}
+  return r.json();
+}
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function render(){
+  if(!gaps.length){
+    $('list').innerHTML = `<div class="done"><h2>Nothing to answer 🎉</h2>
+      <p>Every question in your queue has an answer. New ones appear here as they come up.</p></div>`;
+    return;
+  }
+  $('list').innerHTML = gaps.map((g,i)=>{
+    const opts = (g.options||[]).filter(Boolean);
+    const field = opts.length
+      ? `<div class="opts" data-i="${i}">${opts.map(o=>
+          `<span class="opt" data-v="${esc(o)}">${esc(o)}</span>`).join('')}</div>`
+      : `<input id="in${i}" data-i="${i}" placeholder="Your answer"
+           inputmode="${/how many|years|גיל|שנות/i.test(g.label)?'numeric':'text'}">`;
+    return `<div class="q">
+      <div class="qh">
+        <span class="blocking">${g.blocking} job${g.blocking===1?'':'s'}</span>
+        <div><div class="label">${esc(g.label)}</div>
+             <div class="eg">e.g. ${esc(g.example)}</div></div>
+      </div>${field}</div>`;
+  }).join('');
+  document.querySelectorAll('.opt').forEach(el=>el.onclick=()=>{
+    const wrap=el.parentElement, i=wrap.dataset.i;
+    wrap.querySelectorAll('.opt').forEach(o=>o.classList.remove('on'));
+    el.classList.add('on'); answers[gaps[i].label]=el.dataset.v; sync();
+  });
+  document.querySelectorAll('input[data-i]').forEach(el=>el.oninput=()=>{
+    const g=gaps[el.dataset.i];
+    if(el.value.trim()) answers[g.label]=el.value.trim(); else delete answers[g.label];
+    sync();
+  });
+}
+function sync(){
+  const n=Object.keys(answers).length;
+  const jobs=gaps.filter(g=>answers[g.label]).reduce((s,g)=>s+g.blocking,0);
+  $('count').textContent = n ? `${n} answered · unblocks ${jobs} job${jobs===1?'':'s'}` : '0 answered';
+  $('save').disabled = !n;
+}
+async function load(){
+  try{
+    const d = await api('GET','/api/answers/gaps');
+    gaps = d.gaps || []; answers = {};
+    $('lede').innerHTML = gaps.length
+      ? `<b>${d.blocked_items}</b> applications are waiting on <b>${gaps.length}</b> questions.
+         Answer each one once and the app reuses it forever.`
+      : `<b>${d.answered}</b> answers saved. Nothing is waiting on you.`;
+    render(); sync();
+  }catch(e){ $('lede').textContent = e.message; }
+}
+$('save').onclick=async()=>{
+  $('save').disabled=true;
+  try{
+    const r = await api('POST','/api/answers/bulk',{answers});
+    toast(`Saved ${r.learned} · ${r.requeued} application${r.requeued===1?'':'s'} will retry`);
+    await load();
+  }catch(e){ toast(e.message); $('save').disabled=false; }
+};
+load();
+</script>
+</body>
+</html>

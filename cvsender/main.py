@@ -614,6 +614,45 @@ async def save_answers(item_id: int, request: Request):
     return JSONResponse({"ok": True, "learned": learned})
 
 
+@app.get("/api/answers/gaps")
+def answer_gaps(limit: int = 60):
+    """The questions blocking the most applications right now."""
+    gaps = store.answer_gaps(limit)
+    return JSONResponse({"gaps": gaps,
+                         "blocked_items": sum(g["blocking"] for g in gaps),
+                         "answered": len(store.list_answers())})
+
+
+@app.post("/api/answers/bulk")
+async def save_answers_bulk(request: Request):
+    """Answer several screening questions at once and retry what they blocked."""
+    _check_origin(request)
+    body = await request.json()
+    answers = body.get("answers") or {}
+    # Collect what each question blocks BEFORE learning it: once an answer
+    # exists the question is no longer a gap, so the items would be invisible.
+    gaps = {g["label"]: g["item_ids"] for g in store.answer_gaps(500)}
+    learned = requeued = 0
+    for question, answer in answers.items():
+        if not str(answer).strip():
+            continue
+        before = store.recall_answer(question)
+        store.learn_answer(question, str(answer).strip())
+        if store.recall_answer(question) == before:
+            continue                      # refused (credentials, IDs, blank)
+        learned += 1
+        requeued += store.requeue_items(gaps.get(question, []),
+                                        "answer saved — retrying")
+    if learned:
+        _cloud_bg(cloud.push_answers)
+    return JSONResponse({"ok": True, "learned": learned, "requeued": requeued})
+
+
+@app.get("/answers")
+def answers_page():
+    return FileResponse(str(WEB / "answers.html"))
+
+
 @app.get("/api/answers")
 def list_answers():
     return JSONResponse({"answers": store.list_answers()})

@@ -323,6 +323,20 @@ def _apply_prepare_result(run_id, it, res, cv_path, profile):
                 "screenshot": res.screenshot})
 
 
+def linkedin_daily_cap() -> int:
+    """Today's LinkedIn ceiling: the setting, clamped to the code ceiling."""
+    raw = store.get_setting("linkedin.daily_cap")
+    try:
+        want = int(raw) if raw is not None else config.LINKEDIN_DAILY_CAP
+    except (TypeError, ValueError):
+        want = config.LINKEDIN_DAILY_CAP
+    return max(0, min(want, config.LINKEDIN_CAP_CEILING))
+
+
+def linkedin_cap_left() -> int:
+    return max(0, linkedin_daily_cap() - store.sent_today("linkedin"))
+
+
 async def run_send(run_id: int, cancel) -> None:
     """SEND phase: drain every item the human confirmed into 'sending', re-fill
     and perform the one irreversible submit, then verify. Strictly sequential +
@@ -354,6 +368,16 @@ async def run_send(run_id: int, cancel) -> None:
             company=h.get("company", ""), title=h.get("title", ""),
             answers=h.get("answers", {}), cv_path=h.get("cv_path", ""),
             cv_sha256=h.get("cv_sha256", ""))
+
+        # LinkedIn volume ceiling. Over the cap the item goes back to 'ready'
+        # (still confirmed, nothing sent) and resumes tomorrow.
+        if it["channel"] == "linkedin" and linkedin_cap_left() <= 0:
+            msg = (f"LinkedIn daily cap reached ({linkedin_daily_cap()}) — "
+                   "resumes tomorrow")
+            store.transition_item(iid, ["sending"], "ready", reason=msg)
+            _emit(run_id, "item.state", "ready", item_id=iid,
+                  data={"state": "ready", "reason": msg})
+            continue
 
         # CV-changed-between-prepare-and-send guard.
         bad = _cv_guard(handle, profile)

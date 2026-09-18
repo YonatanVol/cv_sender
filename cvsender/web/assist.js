@@ -47,10 +47,16 @@ function render() {
         · <span class="mut">${idx + 1} of ${total}</span></div>
       ${it.screenshot ? `<img class="shot" src="/data2/${it.screenshot}" alt="filled form">` : ''}
       ${qs.length ? `<div class="meta">Answer once — reused automatically next time:</div>` : ''}
-      ${qs.map((q, i) => `<div class="q">
-          <label>${esc(q.label)}</label>
-          <input id="q${i}" data-label="${esc(q.label)}" placeholder="your answer">
-        </div>`).join('')}
+      ${qs.map((q, i) => {
+        const opts = (q.options || []).filter(Boolean);
+        const field = opts.length
+          ? `<select id="q${i}" data-label="${esc(q.label)}">
+               <option value="">choose…</option>
+               ${opts.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
+             </select>`
+          : `<input id="q${i}" data-label="${esc(q.label)}" placeholder="your answer">`;
+        return `<div class="q"><label>${esc(q.label)}</label>${field}</div>`;
+      }).join('')}
       <div class="actions">
         <button onclick="takeover()" title="Re-opens the form already filled with your details + CV">🖥 Fill it for me</button>
         <a class="btn open" href="${esc(it.apply_url || it.url)}" target="_blank" rel="noopener"
@@ -103,7 +109,7 @@ window.markGone = markGone;
 async function saveAnswers() {
   const it = queue[idx];
   const answers = {};
-  document.querySelectorAll('input[data-label]').forEach(el => {
+  document.querySelectorAll('[data-label]').forEach(el => {
     if (el.value.trim()) answers[el.dataset.label] = el.value.trim();
   });
   if (!Object.keys(answers).length) return toast('Nothing to save');
