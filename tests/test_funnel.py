@@ -92,7 +92,7 @@ REVIEW = [  # software-adjacent: prepare, but hold for the human
     "Streaming Platform Engineer", "Junior Systems Implementer (מיישם/ת מערכות)",
     "SAP ABAP Developer", "Manual QA Tester – Digital & Web",
     "מהנדס/ת בקרה ואוטומציה",          # industrial control, not software
-    "מהנדס/ת חשמל", "בקרת איכות",
+    "מהנדס/ת חשמל",
     "Software Engineer, Recruiting Platform",   # software + non-software word
     "Software Sales Specialist",
 ]
@@ -102,6 +102,7 @@ DROP = [    # not software at all
     "IT Support Technician (Student Position)", "Product Designer, AI Builder",
     "Safety Officer", "Microbiologist & Researcher", "Sales Engineer",
     "HR Business Partner", "מנהל/ת פיתוח עסקי", "Talent Acquisition Specialist",
+    "בקרת איכות",                      # quality control, no software signal
 ]
 
 
