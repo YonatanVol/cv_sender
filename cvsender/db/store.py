@@ -10,7 +10,12 @@ from typing import Any, Optional, Sequence
 
 from .connection import connect, ro, tx
 
-ACTIVE_STATUSES = ("running", "awaiting_confirm", "sending")
+# A run that is *working* — the single-run lock. 'awaiting_confirm' is NOT
+# here: that run is parked for a human, its items are durable, and treating it
+# as active blocked every later run (the morning staging would never start
+# until someone opened the dashboard and cancelled it).
+ACTIVE_STATUSES = ("running", "sending")
+PARKED_STATUSES = ("awaiting_confirm",)
 
 
 def _now() -> float:
@@ -65,7 +70,7 @@ def create_run_atomic(options: dict, mode: str) -> Optional[int]:
             "heartbeat_at, started_at) "
             "SELECT ?, ?, 'prepare', 'running', ?, ?, ? "
             "WHERE NOT EXISTS (SELECT 1 FROM runs WHERE status IN "
-            "('running','awaiting_confirm','sending'))",
+            "('running','sending'))",
             (json.dumps(options), mode, os.getpid(), now, now),
         )
         return cur.lastrowid if cur.rowcount == 1 else None
@@ -77,10 +82,20 @@ def get_run(run_id: int) -> Optional[dict]:
 
 
 def get_active_run() -> Optional[dict]:
+    """The run currently working. A parked 'awaiting_confirm' run is not one:
+    see ACTIVE_STATUSES."""
     with ro() as c:
         return _row(c.execute(
-            "SELECT * FROM runs WHERE status IN ('running','awaiting_confirm',"
-            "'sending') ORDER BY id DESC LIMIT 1").fetchone())
+            "SELECT * FROM runs WHERE status IN ('running','sending') "
+            "ORDER BY id DESC LIMIT 1").fetchone())
+
+
+def parked_run() -> Optional[dict]:
+    """The newest run waiting on a human confirm, if any."""
+    with ro() as c:
+        return _row(c.execute(
+            "SELECT * FROM runs WHERE status='awaiting_confirm' "
+            "ORDER BY id DESC LIMIT 1").fetchone())
 
 
 def list_runs(limit: int = 50) -> list[dict]:
@@ -671,6 +686,9 @@ def sweep_stale_runs(stale_after_s: float) -> list[int]:
         rows = c.execute(
             "SELECT id, heartbeat_at, worker_pid FROM runs "
             "WHERE status IN ('running','awaiting_confirm','sending')").fetchall()
+        # (parked runs are included here on purpose: a dead worker must still
+        # release their 'preparing'/'sending' items, even though a parked run
+        # no longer blocks new ones.)
         for r in rows:
             hb = r["heartbeat_at"] or 0
             if (now - hb) < stale_after_s and _pid_alive(r["worker_pid"]):

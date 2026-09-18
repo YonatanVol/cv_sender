@@ -100,3 +100,16 @@ def test_status_reports_what_the_doctor_prints(env):
     st = sched.status()
     assert st["enabled"] is True and st["target_depth"] == 120
     assert st["next_staging_at"] == "08:30"
+
+
+def test_a_parked_run_never_blocks_the_next_staging(env):
+    """A finished prepare sits in 'awaiting_confirm' until a human looks at it.
+    That must not stop tomorrow's morning run."""
+    sched, store, started, _ = env
+    first = sched.stage_now()
+    store.update_run(first, status="awaiting_confirm")
+    assert store.get_active_run() is None
+    assert store.parked_run()["id"] == first
+    store.set_setting(sched.LAST_STAGING, None)           # next day
+    second = sched.stage_now()
+    assert second is not None and second != first

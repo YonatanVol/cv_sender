@@ -315,7 +315,8 @@ async def create_run(request: Request):
 
 @app.get("/api/runs/active")
 def active_run():
-    return JSONResponse(store.get_active_run() or {})
+    """The working run, or the newest one parked for your confirm."""
+    return JSONResponse(store.get_active_run() or store.parked_run() or {})
 
 
 @app.get("/api/runs")
