@@ -181,6 +181,25 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX idx_sessions_exp ON sessions(expires_at);
     """,
+
+    # 007 — per-role CVs. One CV for every job buries the relevant half. These
+    # are variants of the SAME true content (different emphasis and project
+    # selection, nothing invented), chosen per posting and recorded with the
+    # application so reply rates can be compared later.
+    """
+    CREATE TABLE cv_variants (
+        name TEXT PRIMARY KEY,
+        label TEXT,
+        path TEXT NOT NULL,
+        sha256 TEXT,
+        tags_json TEXT,
+        pages INTEGER,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at REAL
+    );
+    ALTER TABLE applications ADD COLUMN cv_variant TEXT;
+    ALTER TABLE applications ADD COLUMN cv_sha256 TEXT;
+    """,
 ]
 
 

@@ -146,6 +146,27 @@ posting that was waiting on it. Field ids, duplicated labels, EEO
 self-identification and anything answerable from your profile are filtered out,
 and credentials or ID numbers are never stored.
 
+## A CV per role
+
+One CV for every posting buries the half that matters. The same true content is
+built into role versions — **backend**, **full-stack**, **qa**, **data** — that
+differ only in emphasis: which three projects lead, how the skills lines are
+ordered, and the one-line opener. Nothing is invented; every claim appears in
+the general CV too.
+
+The posting picks one (`cvsender/cv_tailor.py`): title words count three times,
+description words once, a tie or an unclear title gets the default CV. The
+choice is deterministic, so the same posting always gets the same CV. The file
+actually attached is hashed into the send handle (so the changed-CV guard
+compares like with like) and recorded on the application as `cv_variant`, which
+is what makes reply rates comparable per CV later.
+
+Build them from your CV sources, then they appear on **Settings → Your CV**:
+
+```bash
+cd cv_source && node build_variants.js && node build_ats.js   # per family
+```
+
 ## LinkedIn volume cap
 
 LinkedIn is the only channel that truly auto-sends, and automating it is against

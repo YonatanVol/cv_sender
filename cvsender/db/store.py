@@ -392,6 +392,42 @@ def already_sent(dedupe_key: str, content_hash: Optional[str] = None) -> bool:
         return False
 
 
+# ----------------------------- CV variants ---------------------------------
+
+def upsert_cv_variant(name: str, label: str, path: str, sha256: str,
+                      tags: list[str], pages: Optional[int] = None,
+                      is_default: bool = False) -> None:
+    with tx() as c:
+        if is_default:
+            c.execute("UPDATE cv_variants SET is_default=0")
+        c.execute(
+            "INSERT INTO cv_variants (name, label, path, sha256, tags_json, "
+            "pages, is_default, created_at) VALUES (?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(name) DO UPDATE SET label=excluded.label, "
+            "path=excluded.path, sha256=excluded.sha256, "
+            "tags_json=excluded.tags_json, pages=excluded.pages, "
+            "is_default=excluded.is_default",
+            (name, label, path, sha256, json.dumps(tags), pages,
+             1 if is_default else 0, _now()))
+
+
+def list_cv_variants() -> list[dict]:
+    with ro() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT * FROM cv_variants ORDER BY is_default DESC, name")]
+    for r in rows:
+        try:
+            r["tags"] = json.loads(r.get("tags_json") or "[]")
+        except ValueError:
+            r["tags"] = []
+    return rows
+
+
+def delete_cv_variant(name: str) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM cv_variants WHERE name=?", (name,))
+
+
 # ------------------------------ sessions -----------------------------------
 
 def create_session(token_hash: str, ttl_s: float) -> None:
@@ -640,20 +676,32 @@ def mark_assist(item_id: int) -> None:
         c.execute("UPDATE run_items SET assist_at=? WHERE id=?", (_now(), item_id))
 
 
-def record_application(item: dict, evidence: str) -> int:
-    """Idempotent terminal write — only call with real confirmation evidence."""
+def record_application(item: dict, evidence: str, cv_variant: str = "",
+                       cv_sha256: str = "") -> int:
+    """Idempotent terminal write — only call with real confirmation evidence.
+
+    The CV variant is recorded so reply rates can later be compared per CV.
+    """
     now = _now()
     with tx() as c:
         cur = c.execute(
             "INSERT INTO applications (dedupe_key, content_hash, channel, company, "
             "title, apply_url, status, confirmation_evidence, run_id, item_id, "
-            "sent_at, stage, stage_at) VALUES (?,?,?,?,?,?, 'sent', ?,?,?,?, "
-            "'applied', ?) ON CONFLICT(dedupe_key) DO NOTHING",
+            "sent_at, stage, stage_at, cv_variant, cv_sha256) "
+            "VALUES (?,?,?,?,?,?, 'sent', ?,?,?,?, 'applied', ?,?,?) "
+            "ON CONFLICT(dedupe_key) DO NOTHING",
             (item["dedupe_key"], item.get("content_hash"), item["channel"],
              item.get("company"), item.get("title"), item.get("apply_url"),
-             evidence, item.get("run_id"), item["id"], now, now),
+             evidence, item.get("run_id"), item["id"], now, now,
+             cv_variant or None, cv_sha256 or None),
         )
         return cur.lastrowid
+
+
+def recent_applications(limit: int = 20) -> list[dict]:
+    with ro() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM applications ORDER BY sent_at DESC LIMIT ?", (limit,))]
 
 
 # ------------------------------ recovery -----------------------------------

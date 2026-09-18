@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 
-from .. import config
+from .. import config, cv_tailor
 from ..channels.base import (Job, READY, NEEDS_INPUT, FAILED, SKIPPED, SENT,
                              SENT_UNVERIFIED, SendHandle)
 from ..channels.registry import build_adapters
@@ -162,8 +162,14 @@ async def _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path,
                   data={"state": "preparing"})
             adapter = adapters.get(it["channel"])
             job = _job_from_item(it)
+            # Pick the CV that fits this posting (backend / full-stack / QA /
+            # data). Same true content, different emphasis; falls back to the
+            # default CV when nothing is clearly called for.
+            item_cv, variant = cv_tailor.cv_for(it.get("title") or "",
+                                                job.description or "")
+            item_cv = item_cv or cv_path
             try:
-                res = await adapter.prepare(ctx, job, profile, cv_path, cancel)
+                res = await adapter.prepare(ctx, job, profile, item_cv, cancel)
             except Cancelled:
                 store.transition_item(it["id"], ["preparing"], "queued")
                 raise
@@ -171,7 +177,7 @@ async def _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path,
                 res = None
                 _emit(run_id, "item.error", str(e)[:160], item_id=it["id"],
                       level="error")
-            _apply_prepare_result(run_id, it, res, cv_path, profile)
+            _apply_prepare_result(run_id, it, res, item_cv, profile, variant)
             await cancel.sleep(config.PREPARE_DELAY_S)
 
     n = max(1, int(concurrency))
@@ -285,7 +291,7 @@ def _review_reason(it: dict) -> str:
     return ""
 
 
-def _apply_prepare_result(run_id, it, res, cv_path, profile):
+def _apply_prepare_result(run_id, it, res, cv_path, profile, cv_variant=""):
     if res is None:
         store.transition_item(it["id"], ["preparing"], "failed",
                               reason="prepare crashed")
@@ -302,7 +308,12 @@ def _apply_prepare_result(run_id, it, res, cv_path, profile):
         "dedupe_key": it["dedupe_key"], "channel": it["channel"],
         "apply_url": it["apply_url"], "company": it.get("company"),
         "title": it.get("title"), "answers": res.answers,
-        "cv_path": cv_path, "cv_sha256": (profile or {}).get("cv_sha256", ""),
+        "cv_path": cv_path,
+        # Hash the file we actually attached, not whatever the profile holds,
+        # so the changed-CV guard compares like with like.
+        "cv_sha256": (cv_tailor.sha256(cv_path)
+                      or (profile or {}).get("cv_sha256", "")),
+        "cv_variant": cv_variant,
     }
     result_json["handle"] = handle
     state = {READY: "ready", NEEDS_INPUT: "needs_input",
@@ -452,7 +463,8 @@ def _apply_send_result(run_id, it, res):
             screenshot_after=res.screenshot or "")
         if moved:
             item = store.get_item(it["id"])
-            store.record_application(item, ev)      # terminal, idempotent
+            store.record_application(item, ev, cv_variant=h.get("cv_variant") or "",
+                                     cv_sha256=h.get("cv_sha256") or "")
         _emit(run_id, "item.state", "sent", item_id=it["id"],
               data={"state": "sent", "evidence": ev})
     elif res.state == SENT_UNVERIFIED:

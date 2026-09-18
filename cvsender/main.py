@@ -642,6 +642,20 @@ async def run_now(request: Request):
     return JSONResponse({"ok": True, "run_id": run_id}, status_code=201)
 
 
+@app.get("/api/cv/variants")
+def cv_variants():
+    """The role CVs and which one a sample posting would get."""
+    from . import cv_tailor
+    variants = store.list_cv_variants()
+    return JSONResponse({
+        "variants": [{k: v[k] for k in ("name", "label", "pages", "is_default", "tags")}
+                     for v in variants],
+        "recent": [{"title": a["title"], "company": a["company"],
+                    "cv": a.get("cv_variant") or "general"}
+                   for a in store.recent_applications(8)],
+    })
+
+
 @app.get("/api/answers/gaps")
 def answer_gaps(limit: int = 60):
     """The questions blocking the most applications right now."""
