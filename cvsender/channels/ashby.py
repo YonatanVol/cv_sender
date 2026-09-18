@@ -37,13 +37,23 @@ class AshbyChannel:
                 items = data.get("jobs", []) if isinstance(data, dict) else []
                 for j in items:
                     loc = j.get("location", "") or ""
+                    # Ashby puts the country in a separate address block, and
+                    # locations are often shorthand ("TLV"), so the geography
+                    # gate misses real Israeli roles without it.
+                    addr = ((j.get("address") or {}).get("postalAddress") or {})
+                    extra = [addr.get("addressLocality"), addr.get("addressRegion"),
+                             addr.get("addressCountry")]
+                    for part in extra:
+                        if part and part.lower() not in loc.lower():
+                            loc = f"{loc}, {part}" if loc else part
                     url = j.get("jobUrl", "") or j.get("applyUrl", "")
                     jobs.append(Job(
                         channel="ashby", company=token,
                         external_id=str(j.get("id")), title=j.get("title", ""),
                         location=loc, url=url,
                         apply_url=j.get("applyUrl") or url,
-                        remote=bool(j.get("isRemote")),
+                        remote=bool(j.get("isRemote")) or
+                        (j.get("workplaceType") or "").lower() == "remote",
                         description=(j.get("descriptionPlain")
                                     or j.get("description", ""))[:2000],
                         raw={"id": j.get("id")}))

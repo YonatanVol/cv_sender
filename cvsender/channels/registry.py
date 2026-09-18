@@ -6,12 +6,16 @@ from .ashby import AshbyChannel
 from .comeet import ComeetChannel
 from .greenhouse import GreenhouseChannel
 from .lever import LeverChannel
+from .smartrecruiters import SmartRecruitersChannel
+from .workable import WorkableChannel
 
 BUILDERS = {
     "greenhouse": GreenhouseChannel,
     "lever": LeverChannel,
     "ashby": AshbyChannel,
     "comeet": ComeetChannel,
+    "workable": WorkableChannel,
+    "smartrecruiters": SmartRecruitersChannel,
 }
 IMPLEMENTED = set(BUILDERS)
 

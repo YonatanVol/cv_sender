@@ -131,3 +131,35 @@ def test_non_software_roles_dropped(title):
 def test_hebrew_exclusion_needs_word_start():
     # 'מרכז' (center) contains 'רכז' (coordinator) but is not an exclusion
     assert score_job(J("מפתח/ת תוכנה במרכז הפיתוח")).keep
+
+
+# ---- remote must mean "reachable from Israel" ----
+
+@pytest.mark.parametrize("location,keep", [
+    ("Tel Aviv, Israel", True),
+    ("TLV, Tel Aviv, Israel", True),
+    ("Remote", True),
+    ("Remote - Israel", True),
+    ("Remote (EMEA)", True),
+    ("Remote (US)", False),
+    ("US - Remote", False),
+    ("San Francisco", False),
+    ("New York, NY (HQ)", False),
+    ("Singapore", False),
+    ("London, UK", False),
+])
+def test_remote_elsewhere_is_not_remote_for_israel(location, keep):
+    v = score_job(J("Software Engineer", location=location), strictness="balanced")
+    assert v.keep is keep, (location, v.stage, v.reason)
+
+
+def test_a_remote_flagged_us_job_is_still_rejected():
+    """The board's own 'remote' flag must not override a US-only location."""
+    j = J("Backend Engineer", location="Remote (US)", remote=True)
+    assert score_job(j).keep is False
+
+
+@pytest.mark.parametrize("location", ["Seoul, South Korea", "Europe, European Union",
+                                      "APAC", "Shanghai, China"])
+def test_other_regions_are_not_reachable_either(location):
+    assert score_job(J("Software Engineer", location=location)).keep is False
