@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import threading
 import time
 from pathlib import Path
@@ -146,6 +147,16 @@ async def login(request: Request):
     return resp
 
 
+@app.post("/api/auth/logout-all")
+async def logout_all(request: Request):
+    """Sign out every device. Use after losing a phone, or to force a re-login."""
+    _check_origin(request)
+    n = auth.destroy_all_sessions()
+    resp = JSONResponse({"ok": True, "signed_out": n})
+    resp.delete_cookie(auth.COOKIE, path="/")
+    return resp
+
+
 @app.post("/api/logout")
 async def logout(request: Request):
     auth.destroy_session(request.cookies.get(auth.COOKIE))
@@ -172,14 +183,45 @@ async def set_passphrase(request: Request):
     return JSONResponse({"ok": True})
 
 
+def local_origins() -> set[str]:
+    """Every origin this server legitimately answers on.
+
+    config.HOST is the BIND address: with --remote it is 0.0.0.0, which no
+    browser ever sends as an Origin, so the old check rejected every POST from
+    the phone (403 on 'I sent it'). The allow-list is built from the machine's
+    real addresses instead, plus an optional public_origin setting for a
+    Tailscale or tunnel hostname. It is an explicit list, never "Origin equals
+    Host", which a DNS-rebinding page can forge.
+    """
+    hosts = {"localhost", "127.0.0.1", "::1"}
+    if config.HOST not in ("0.0.0.0", "::"):
+        hosts.add(config.HOST)
+    try:
+        hostname = socket.gethostname()
+        hosts.add(hostname)
+        hosts.add(f"{hostname}.local")
+        for info in socket.getaddrinfo(hostname, None):
+            hosts.add(info[4][0])
+    except OSError:
+        pass
+    origins = set()
+    for h in hosts:
+        h = f"[{h}]" if ":" in h and not h.startswith("[") else h
+        origins.add(f"http://{h}:{config.PORT}")
+        origins.add(f"https://{h}:{config.PORT}")
+        origins.add(f"https://{h}")
+    extra = store.get_setting("public_origin")
+    if extra:
+        origins.add(extra.rstrip("/"))
+    return origins
+
+
 def _check_origin(request: Request) -> None:
     """Reject cross-origin mutations of the irreversible endpoints."""
     origin = request.headers.get("origin")
     if origin is None:
         return  # same-origin fetch / curl without Origin
-    allowed = {f"http://{config.HOST}:{config.PORT}",
-               f"http://localhost:{config.PORT}"}
-    if origin not in allowed:
+    if origin.rstrip("/") not in local_origins():
         raise HTTPException(403, "cross-origin request rejected")
 
 

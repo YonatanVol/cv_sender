@@ -121,7 +121,10 @@
 
   <div class="card">
     <h2>Session</h2>
-    <button class="ghost" id="logout">Sign out</button>
+    <div style="display:flex;gap:10px">
+      <button class="ghost" id="logout">Sign out</button>
+      <button class="ghost" id="logoutAll">Sign out everywhere</button>
+    </div>
   </div>
 </main>
 <div id="toast" class="toast hide"></div>
@@ -214,6 +217,12 @@ $('cloudRestore').onclick=async()=>{
     toast(`Restored: ${r.profile?'profile ':''}${r.cv?'CV ':''}${r.settings} settings, ${r.answers} answers`); load(); }
   catch(e){toast(e.message);} };
 cloudStatus();
+$('logoutAll').onclick=async()=>{
+  if(!confirm('Sign out on every device, including this one?')) return;
+  try{ const r=await api('POST','/api/auth/logout-all');
+    toast(`Signed out ${r.signed_out} device(s)`); setTimeout(()=>location.href='/login',900); }
+  catch(e){ toast(e.message); }
+};
 $('logout').onclick=async()=>{
   try{ await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
   catch(e){ toast('Sign out failed'); }

@@ -168,6 +168,19 @@ MIGRATIONS: list[str] = [
     ALTER TABLE dismissed ADD COLUMN restored_at REAL;
     CREATE INDEX idx_dismissed_canon ON dismissed(canonical_url);
     """,
+
+    # 006 — durable sessions. They lived in a module dict, so every restart (a
+    # deploy, a crash, a Mac reboot) logged the phone out. The ritual is "open
+    # the icon, see the number"; a login wall after each restart kills it.
+    """
+    CREATE TABLE sessions (
+        token_hash TEXT PRIMARY KEY,
+        created_at REAL NOT NULL,
+        expires_at REAL NOT NULL,
+        last_seen  REAL
+    );
+    CREATE INDEX idx_sessions_exp ON sessions(expires_at);
+    """,
 ]
 
 
