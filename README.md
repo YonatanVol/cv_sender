@@ -95,23 +95,65 @@ LinkedIn needs a one-time manual login (we never see or store your password):
 ./.venv/bin/python scripts/li_v2_login.py
 ```
 
-## Self-driving runner
+## It runs itself
 
-Keeps the assist queue stocked without you (or an AI agent) in the loop —
-deterministic rules only, so staging costs nothing:
-
-```bash
-python -m cvsender.runner --target 100            # stage up to 100
-python -m cvsender.runner --target 100 --loop     # top up as you clear them
-```
-
-It only **prepares** (fill + attach CV + park). It never submits — sending always
-requires your confirm. Schedule it for every morning:
+Install once and the app starts at login, restarts if it crashes, comes back
+after a reboot, and stages a fresh batch every morning:
 
 ```bash
-cp scripts/com.cvsender.autorun.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.cvsender.autorun.plist
+bash scripts/install_launchd.sh --remote   # --remote also serves your phone
 ```
+
+The scheduler lives **inside the server** (`cvsender/scheduler.py`): one thread,
+one browser, one run at a time. It stages every morning at 08:30, catches up
+until 20:00 if the Mac was asleep, and tops the queue up to your target. It only
+ever **prepares** — sending stays behind your confirm.
+
+When something breaks, one command says what and how to fix it:
+
+```bash
+./.venv/bin/python -m cvsender.doctor
+```
+
+```
+CV Sender — OK
+  ✓ profile            Yonatan Volsky · Yonatan_Volsky_CV.pdf
+  ✓ browser engine     chromium-1228
+  ✓ linkedin session   valid for 361 day(s)
+  ✓ scheduler          tick 15s ago · next staging 08:30
+  ✓ auto-start         launchd job loaded
+  ✓ cloud backup       connected
+  ✓ secrets            cloud.json 0o600
+  ✓ queue              247 ready for you · 0 sent today · LinkedIn 15 of 15 left
+```
+
+The same rows appear on **Settings → System** in the app, with a **Run now**
+button. Every red row carries the exact command that fixes it — these are the
+failures that actually happened: a launchd job nobody installed, a macOS update
+that deleted Playwright's browser, a Supabase project that paused itself.
+
+## Screening answers — the throughput lever
+
+Roughly four of five LinkedIn applications stop on a screening question, so this
+is where volume is won. The form reader pulls each question with the label a
+human sees (LinkedIn's apply dialog is inside a shadow root, so this uses
+element handles, not page-level JavaScript), including radio groups and
+dropdowns.
+
+Open **`/answers`**: every question blocking your queue, ranked by how many
+postings it blocks, answered once. Saving learns the answer and re-queues every
+posting that was waiting on it. Field ids, duplicated labels, EEO
+self-identification and anything answerable from your profile are filtered out,
+and credentials or ID numbers are never stored.
+
+## LinkedIn volume cap
+
+LinkedIn is the only channel that truly auto-sends, and automating it is against
+its User Agreement. Sends are capped in code: `linkedin.daily_cap` (15 by
+default) can be lowered from settings but never raised past
+`LINKEDIN_CAP_CEILING` (20) — not by a setting, a script, or a restored cloud
+backup. Over the cap an item goes back to *ready* and resumes tomorrow; nothing
+is sent twice.
 
 ### Realistic throughput
 
@@ -119,7 +161,7 @@ CAPTCHA is near-universal on ATS boards — in one measured run **11 of 12** ite
 hit one, including companies never tried before. So fully-automatic sending at
 volume is not attainable there; the workflow that *is*:
 
-1. the runner stages ~100 filled applications overnight
+1. the scheduler stages a few hundred filled applications overnight
 2. you clear them in bursts at `/assist` (~5–10s each, so ~15 min)
 3. **"🖥 Fill it for me"** re-opens one in a visible window already filled, so you
    only clear the CAPTCHA and submit
@@ -133,8 +175,10 @@ The app runs on your Mac (that's where the browser automation lives) and you
 drive it from your phone.
 
 ```bash
-./.venv/bin/python -m cvsender.setpass   # one-time: set a passphrase
-./run2.sh --remote                       # prints the URL + a QR code to scan
+./.venv/bin/python -m cvsender.setpass     # one-time: set a passphrase
+bash scripts/install_launchd.sh --remote   # always-on, survives reboots
+# or, for a one-off session with a QR code to scan:
+./run2.sh --remote
 ```
 
 Scan the QR (or open the printed URL) on your phone, sign in, then **Add to
@@ -151,8 +195,13 @@ non-loopback host unless one is set. Local (`127.0.0.1`) use stays open and
 unchanged.
 
 - Passphrase hashed with **scrypt** (stdlib), never stored or logged in plaintext
-- Sessions are server-side random tokens — no signing secret to leak, and a
-  restart logs you out
+- Sessions are server-side random tokens, stored only as SHA-256 in the database
+  with a sliding 30-day expiry, so a restart no longer logs your phone out.
+  **Sign out everywhere** is on the settings page, and changing the passphrase
+  signs every device out
+- Mutating requests are checked against an explicit origin allow-list built from
+  the machine's real addresses (plus an optional `public_origin` for Tailscale),
+  never "Origin equals Host", which a DNS-rebinding page can forge
 - Failed logins are rate-limited and locked out
 - **From anywhere** (not just your Wi-Fi): [Tailscale](https://tailscale.com) is
   the recommended path — device-level auth and no public URL. Cloudflare Tunnel
@@ -229,7 +278,9 @@ cvsender/
   channels/          greenhouse · lever · ashby · comeet · linkedin (+ atsform)
   funnel/            scoring.py · keywords.py (bilingual)
   db/                connection · migrations (PRAGMA user_version) · store
-  web/               dashboard + assist PWA (vanilla JS + SSE, no build step)
+    scheduler.py     in-process morning staging + heartbeat (never sends)
+    health.py        every known failure mode as a row with its fix
+  web/               dashboard + assist/answers/settings PWA (vanilla JS + SSE)
 data2/               DB, CV, screenshots, LinkedIn session — all gitignored
 ```
 
@@ -266,5 +317,9 @@ dead-context recovery).
   for.
 - Ashby/Comeet form filling is best-effort; unrecognised layouts route to
   `needs_input` rather than guessing.
-- No authentication yet — the server binds to `127.0.0.1` only. **Auth ships
-  before any remote/tunnel exposure.**
+- **Access from anywhere still needs Tailscale**, installed and signed in by
+  you. On the LAN the app is plain HTTP behind the passphrase.
+- **A sleeping Mac stops everything.** The service uses `caffeinate -i`, but a
+  closed lid still sleeps; the doctor reports the gap rather than hiding it.
+- **The queue is mostly human work.** CAPTCHA-protected boards always need a
+  person; Assist mode is how that stays fast.

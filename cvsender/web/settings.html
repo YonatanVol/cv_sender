@@ -112,6 +112,15 @@
   </div>
 
   <div class="card">
+    <h2>System</h2>
+    <div id="healthRows" class="sub" style="color:var(--mut);font-size:13px">checking…</div>
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <button class="ghost" id="runNow">▶︎ Run now</button>
+      <button class="ghost" id="recheck">↻ Re-check</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>☁ Cloud backup</h2>
     <div class="sub" id="cloudStatus" style="color:var(--mut);font-size:13px">checking…</div>
     <div style="display:flex;gap:10px">
@@ -204,6 +213,28 @@ $('saveSettings').onclick=async()=>{
     toast('Settings saved ✓');
   }catch(e){toast(e.message);}
 };
+const MARK = {ok:'✓', warn:'!', fail:'✗'};
+const MARKC = {ok:'var(--ok)', warn:'var(--warn)', fail:'var(--bad)'};
+async function health(){
+  const box = $('healthRows');
+  try{
+    const h = await api('GET','/api/health');
+    box.innerHTML = h.checks.map(c=>`
+      <div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid var(--line)">
+        <span style="color:${MARKC[c.state]};font-weight:700">${MARK[c.state]}</span>
+        <div><div style="color:var(--fg)">${c.check}</div>
+        <div>${c.detail||''}${c.fix&&c.state!=='ok'?` — <code style="color:var(--acc)">${c.fix}</code>`:''}</div></div>
+      </div>`).join('');
+  }catch(e){ box.textContent = 'Status unavailable: '+e.message; }
+}
+$('recheck').onclick=health;
+$('runNow').onclick=async()=>{
+  $('runNow').disabled=true;
+  try{ const r=await api('POST','/api/run-now');
+    toast(r.run_id ? `Staging started (run #${r.run_id})` : (r.detail||'Nothing to stage')); }
+  catch(e){ toast(e.message); }
+  $('runNow').disabled=false; health();
+};
 async function cloudStatus(){
   try{ const c=await api('GET','/api/cloud/status');
     $('cloudStatus').textContent = !c.enabled ? 'Cloud sync is off'
@@ -218,6 +249,7 @@ $('cloudRestore').onclick=async()=>{
     toast(`Restored: ${r.profile?'profile ':''}${r.cv?'CV ':''}${r.settings} settings, ${r.answers} answers`); load(); }
   catch(e){toast(e.message);} };
 cloudStatus();
+health();
 $('logoutAll').onclick=async()=>{
   if(!confirm('Sign out on every device, including this one?')) return;
   try{ const r=await api('POST','/api/auth/logout-all');

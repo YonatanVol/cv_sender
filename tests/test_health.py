@@ -53,3 +53,23 @@ def test_scheduler_row_reads_the_database_not_this_process(env, monkeypatch):
     assert row["state"] == env.FAIL and "stalled" in row["detail"]
     store.set_setting(scheduler.LAST_TICK, None)
     assert env.scheduler_row()["state"] == env.FAIL
+
+
+def test_health_endpoint_and_run_now(tmp_path, monkeypatch):
+    """The app exposes the same rows the doctor prints, plus on-demand staging."""
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.delenv("CVS_HOST", raising=False)
+    from cvsender.db.migrations import migrate
+    migrate()
+    from fastapi.testclient import TestClient
+    from cvsender import cloud, main, scheduler
+    monkeypatch.setattr(cloud, "sync_on_start", lambda: {})
+    monkeypatch.setattr(scheduler, "start", lambda: None)
+    monkeypatch.setattr(scheduler, "stage_now", lambda cap=None: 42)
+    with TestClient(main.app) as c:
+        assert c.get("/healthz").json() == {"ok": True}
+        body = c.get("/api/health").json()
+        assert body["state"] in ("ok", "warn", "fail")
+        assert {r["check"] for r in body["checks"]} >= {"profile", "browser engine", "queue"}
+        assert c.post("/api/run-now").json()["run_id"] == 42
