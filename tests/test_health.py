@@ -65,6 +65,10 @@ def test_health_endpoint_and_run_now(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     from cvsender import cloud, main, scheduler
     monkeypatch.setattr(cloud, "sync_on_start", lambda: {})
+    # No network in tests: cloud_row() would otherwise call Supabase, which
+    # makes the suite fail on a slow link or offline.
+    monkeypatch.setattr(cloud, "status", lambda: {"enabled": True, "connected": True,
+                                                  "url": "x", "error": ""})
     monkeypatch.setattr(scheduler, "start", lambda: None)
     monkeypatch.setattr(scheduler, "stage_now", lambda cap=None: 42)
     with TestClient(main.app) as c:
@@ -73,3 +77,12 @@ def test_health_endpoint_and_run_now(tmp_path, monkeypatch):
         assert body["state"] in ("ok", "warn", "fail")
         assert {r["check"] for r in body["checks"]} >= {"profile", "browser engine", "queue"}
         assert c.post("/api/run-now").json()["run_id"] == 42
+
+
+def test_cloud_row_offline_is_a_failure_not_a_crash(env, monkeypatch):
+    """A paused or unreachable project must show as a red row, never an error."""
+    from cvsender import cloud
+    monkeypatch.setattr(cloud, "status", lambda: {"enabled": True, "connected": False,
+                                                  "url": "x", "error": "ConnectError"})
+    row = env.cloud_row()
+    assert row["state"] == env.FAIL and "pauses after 7 idle days" in row["fix"]
