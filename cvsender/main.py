@@ -17,7 +17,7 @@ from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, cloud, config, cv as cvmod
+from . import auth, cloud, config, cv as cvmod, health, scheduler
 from .core.run_manager import manager
 from .db import store
 from .db.migrations import migrate
@@ -43,6 +43,7 @@ def _cloud_bg(fn, *args):
 def _startup():
     migrate()
     _cloud_bg(cloud.sync_on_start)   # bootstrap from / mirror to the cloud
+    scheduler.start()                # keeps the queue stocked; never sends
     # Refuse to be reachable off-machine without a passphrase: these endpoints
     # fire real, irreversible applications.
     if config.HOST not in ("127.0.0.1", "localhost", "::1") \
@@ -85,7 +86,7 @@ app.mount("/static", StaticFiles(directory=str(WEB)), name="static")
 # --------------------------- consent / origin ------------------------------
 
 PUBLIC_PATHS = {"/login", "/api/login", "/static/manifest.webmanifest",
-                "/static/icon.svg", "/api/auth/status"}
+                "/static/icon.svg", "/api/auth/status", "/healthz"}
 
 
 def _is_loopback(request: Request) -> bool:
@@ -612,6 +613,32 @@ async def save_answers(item_id: int, request: Request):
         store.transition_item(item_id, ["needs_input", "failed"], "queued",
                               reason="answers saved — will retry")
     return JSONResponse({"ok": True, "learned": learned})
+
+
+@app.get("/healthz")
+def healthz():
+    """Liveness for launchd / uptime checks. Public on purpose: no data."""
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/health")
+def api_health():
+    """Every way this has broken before, as a list of rows with fixes."""
+    return JSONResponse({**health.report(), "scheduler": scheduler.status()})
+
+
+@app.post("/api/run-now")
+async def run_now(request: Request):
+    """Stage a batch immediately (the phone's 'Run now')."""
+    _check_origin(request)
+    run_id = scheduler.stage_now()
+    if run_id is None:
+        active = store.get_active_run()
+        if active:
+            raise HTTPException(409, f"a run is already active (#{active['id']})")
+        return JSONResponse({"ok": True, "run_id": None,
+                             "detail": store.get_setting(scheduler.LAST_STAGING_RESULT)})
+    return JSONResponse({"ok": True, "run_id": run_id}, status_code=201)
 
 
 @app.get("/api/answers/gaps")
