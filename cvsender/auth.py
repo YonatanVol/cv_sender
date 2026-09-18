@@ -5,8 +5,9 @@ moment it is reachable beyond localhost it must be authenticated. Design:
 
 * passphrase hashed with **scrypt** (stdlib — no extra dependency), never stored
   or logged in plaintext
-* sessions are server-side random tokens held in memory, so they are invalidated
-  by a restart and there is no signing secret to leak
+* sessions are server-side random tokens; only their SHA-256 is stored, in the
+  database, so a restart no longer logs every device out and there is still no
+  signing secret to leak
 * failed logins are rate-limited per client
 * auth is **optional on loopback** (so local use is unchanged) and **mandatory**
   the moment the server binds to anything else — enforced at startup
@@ -26,8 +27,6 @@ COOKIE = "cvs_session"
 SESSION_TTL_S = 30 * 24 * 3600          # 30 days; cleared on restart anyway
 MIN_LEN = 8
 
-# token -> expiry. In-memory on purpose: a restart logs everyone out.
-_sessions: dict[str, float] = {}
 # client -> (failures, first_failure_at)
 _failures: dict[str, tuple[int, float]] = {}
 MAX_FAILURES = 8
@@ -51,11 +50,12 @@ def set_passphrase(passphrase: str) -> None:
     salt = os.urandom(16)
     store.set_setting(SETTING_KEY,
                       f"scrypt${salt.hex()}${_hash(passphrase, salt).hex()}")
+    destroy_all_sessions()        # a changed passphrase logs every device out
 
 
 def clear_passphrase() -> None:
     store.set_setting(SETTING_KEY, None)
-    _sessions.clear()
+    destroy_all_sessions()
 
 
 def verify_passphrase(passphrase: str) -> bool:
@@ -99,24 +99,28 @@ def clear_failures(client: str) -> None:
 
 # ------------------------------- sessions ---------------------------------
 
+def _tok(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def create_session() -> str:
     token = secrets.token_urlsafe(32)
-    _sessions[token] = time.time() + SESSION_TTL_S
+    store.create_session(_tok(token), SESSION_TTL_S)
     return token
 
 
 def valid_session(token: str | None) -> bool:
+    """True if the token is live; also slides its expiry (sliding window)."""
     if not token:
         return False
-    exp = _sessions.get(token)
-    if exp is None:
-        return False
-    if exp < time.time():
-        _sessions.pop(token, None)
-        return False
-    return True
+    return store.touch_session(_tok(token), SESSION_TTL_S)
 
 
 def destroy_session(token: str | None) -> None:
     if token:
-        _sessions.pop(token, None)
+        store.delete_session(_tok(token))
+
+
+def destroy_all_sessions() -> int:
+    """Sign out every device (passphrase change, or 'Sign out everywhere')."""
+    return store.delete_all_sessions()

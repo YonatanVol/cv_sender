@@ -12,7 +12,7 @@ def a(tmp_path, monkeypatch):
     from cvsender.db.migrations import migrate
     from cvsender import auth
     migrate()
-    auth._sessions.clear()
+    auth.destroy_all_sessions()
     auth._failures.clear()
     auth.clear_passphrase()
     return auth
@@ -62,8 +62,26 @@ def test_sessions(a):
 
 
 def test_expired_session_rejected(a):
+    from cvsender.db.connection import tx
     t = a.create_session()
-    a._sessions[t] = time.time() - 1
+    with tx() as c:                                   # expire it in the DB
+        c.execute("UPDATE sessions SET expires_at = ?", (time.time() - 1,))
+    assert a.valid_session(t) is False
+
+
+def test_session_survives_a_restart(a):
+    """The whole point: a reload (restart) must not log the phone out."""
+    import importlib
+    from cvsender import auth as mod
+    t = a.create_session()
+    importlib.reload(mod)
+    assert mod.valid_session(t) is True
+
+
+def test_changing_the_passphrase_signs_everyone_out(a):
+    a.set_passphrase("first passphrase")
+    t = a.create_session()
+    a.set_passphrase("second passphrase")
     assert a.valid_session(t) is False
 
 
@@ -82,3 +100,18 @@ def test_clearing_passphrase_kills_sessions(a):
     t = a.create_session()
     a.clear_passphrase()
     assert a.valid_session(t) is False
+
+
+def test_sign_out_everywhere(a):
+    tokens = [a.create_session() for _ in range(3)]
+    assert a.destroy_all_sessions() == 3
+    assert all(a.valid_session(t) is False for t in tokens)
+
+
+def test_expired_sessions_are_purged(a):
+    from cvsender.db import store
+    from cvsender.db.connection import tx
+    a.create_session()
+    with tx() as c:
+        c.execute("UPDATE sessions SET expires_at = ?", (time.time() - 1,))
+    assert store.purge_expired_sessions() == 1

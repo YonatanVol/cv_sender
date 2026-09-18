@@ -377,6 +377,48 @@ def already_sent(dedupe_key: str, content_hash: Optional[str] = None) -> bool:
         return False
 
 
+# ------------------------------ sessions -----------------------------------
+
+def create_session(token_hash: str, ttl_s: float) -> None:
+    now = _now()
+    with tx() as c:
+        c.execute("INSERT OR REPLACE INTO sessions (token_hash, created_at, "
+                  "expires_at, last_seen) VALUES (?,?,?,?)",
+                  (token_hash, now, now + ttl_s, now))
+
+
+def touch_session(token_hash: str, ttl_s: float) -> bool:
+    """Validate and slide the expiry. False when unknown or expired."""
+    now = _now()
+    with tx() as c:
+        row = c.execute("SELECT expires_at FROM sessions WHERE token_hash=?",
+                        (token_hash,)).fetchone()
+        if row is None:
+            return False
+        if row["expires_at"] < now:
+            c.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash,))
+            return False
+        c.execute("UPDATE sessions SET last_seen=?, expires_at=? WHERE token_hash=?",
+                  (now, now + ttl_s, token_hash))
+        return True
+
+
+def delete_session(token_hash: str) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash,))
+
+
+def delete_all_sessions() -> int:
+    with tx() as c:
+        return c.execute("DELETE FROM sessions").rowcount
+
+
+def purge_expired_sessions() -> int:
+    with tx() as c:
+        return c.execute("DELETE FROM sessions WHERE expires_at < ?",
+                         (_now(),)).rowcount
+
+
 # ---------------------------- settings -------------------------------------
 
 def get_setting(key: str) -> Optional[str]:
