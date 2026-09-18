@@ -77,6 +77,11 @@
     </div>
     <label class="filebtn" for="cvFile" id="cvBtn">⬆︎ Replace CV (PDF)</label>
     <input type="file" id="cvFile" accept="application/pdf,.pdf">
+    <div style="margin-top:14px">
+      <div class="sub" style="color:var(--mut);font-size:12px;margin-bottom:6px">
+        Role versions — the job title picks one. Same facts, different emphasis.</div>
+      <div id="variants" class="sub" style="color:var(--mut);font-size:13px">…</div>
+    </div>
   </div>
 
   <div class="card">
@@ -234,7 +239,20 @@ $('runNow').onclick=async()=>{
     toast(r.run_id ? `Staging started (run #${r.run_id})` : (r.detail||'Nothing to stage')); }
   catch(e){ toast(e.message); }
   $('runNow').disabled=false; health();
+variants();
 };
+async function variants(){
+  try{
+    const d = await api('GET','/api/cv/variants');
+    if(!d.variants.length){ $('variants').textContent='No role versions yet'; return; }
+    $('variants').innerHTML = d.variants.map(v=>
+      `<div style="display:flex;gap:8px;padding:4px 0">
+         <span style="color:${v.is_default?'var(--acc)':'var(--mut)'};min-width:78px">${v.name}</span>
+         <span>${v.label||''}${v.is_default?' · default':''}</span></div>`).join('')
+      + (d.recent.length ? `<div style="margin-top:8px;color:var(--mut);font-size:12px">
+           last sent: ${d.recent.map(r=>`${r.company} → ${r.cv}`).slice(0,4).join(' · ')}</div>` : '');
+  }catch(e){ $('variants').textContent = e.message; }
+}
 async function cloudStatus(){
   try{ const c=await api('GET','/api/cloud/status');
     $('cloudStatus').textContent = !c.enabled ? 'Cloud sync is off'
