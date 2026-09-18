@@ -59,3 +59,14 @@ def test_rescued_item_appears_in_assist_queue(db):
     assert not any(i["id"] == iid for i in db.assist_queue())  # hidden while 'sending'
     db.sweep_stuck_items(older_than_s=600)
     assert any(i["id"] == iid for i in db.assist_queue())      # now finishable
+
+
+def test_parked_run_does_not_hold_the_single_run_lock(db):
+    """Regression: 'awaiting_confirm' counted as active, so one parked run
+    blocked every later run until someone cancelled it by hand."""
+    first = db.create_run_atomic({}, "dry")
+    db.update_run(first, status="awaiting_confirm")
+    second = db.create_run_atomic({}, "dry")
+    assert second is not None and second != first
+    db.update_run(second, status="running")
+    assert db.create_run_atomic({}, "dry") is None        # a working run still locks
