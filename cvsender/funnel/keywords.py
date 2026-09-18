@@ -93,3 +93,25 @@ ISRAEL_HINTS_HE = [
 ]
 
 REMOTE_HINTS = ["remote", "מרחוק", "היברידי", "hybrid", "work from home", "wfh"]
+
+
+# Places that mean "not reachable from Israel". A job tagged remote but locked
+# to another country ("Remote (US)", "US - Remote", "London") is not a remote
+# job for someone living in Tel Aviv, and staging it wastes the queue.
+FOREIGN_PLACES = [
+    "united states", "u.s.", "usa", "us -", "us-", "(us)", "us only",
+    "canada", "united kingdom", "england", "ireland", "scotland",
+    "germany", "france", "spain", "portugal", "netherlands", "amsterdam",
+    "poland", "romania", "bulgaria", "ukraine", "serbia", "czech",
+    "india", "bangalore", "bengaluru", "pune", "hyderabad", "singapore",
+    "japan", "tokyo", "australia", "sydney", "brazil", "mexico", "argentina",
+    "new york", "san francisco", "seattle", "austin", "boston", "chicago",
+    "denver", "atlanta", "los angeles", "toronto", "vancouver", "london",
+    "dublin", "berlin", "munich", "paris", "zurich", "stockholm", "dubai",
+    "foster city", "mountain view", "palo alto", "sunnyvale", "washington",
+    "korea", "seoul", "china", "shanghai", "beijing", "taiwan", "vietnam",
+    "philippines", "thailand", "indonesia", "turkey", "egypt", "south africa",
+    "europe", "european union", "eu only", "apac", "latam", "nordics",
+]
+# Regions that do include Israel, so they stay eligible.
+INCLUSIVE_REGIONS = ["emea", "global", "worldwide", "anywhere", "middle east"]

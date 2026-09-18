@@ -115,6 +115,11 @@ def score_job(job, mode: str = "israel_remote",
     is_remote = bool(job.remote) or bool(_has_en(loc, K.REMOTE_HINTS)) or \
         bool(_has_he(loc, K.REMOTE_HINTS))
     unknown_loc = not loc.strip()
+    # "Remote (US)" is not remote for someone in Tel Aviv.
+    foreign = next((p for p in K.FOREIGN_PLACES if p in loc.lower()), None)
+    inclusive = any(r in loc.lower() for r in K.INCLUSIVE_REGIONS)
+    if foreign and not in_il and not inclusive:
+        is_remote = False
     if mode == "israel_only":
         geo_ok = in_il
     elif mode == "anywhere":

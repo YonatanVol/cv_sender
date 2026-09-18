@@ -20,6 +20,8 @@ DEFAULT = {
     "lever": ["mistral", "palantir"],
     "ashby": ["openai", "linear", "replit", "cohere", "ramp", "notion"],
     "comeet": [],
+    "workable": [],
+    "smartrecruiters": [],
 }
 
 
