@@ -34,9 +34,14 @@ def is_prohibited(label: str) -> bool:
 
 
 def profile_values(profile: dict) -> dict:
+    # Forms ask for first/last name, but the profile stores one full name, so
+    # derive them instead of leaving those fields blocked on the human.
+    parts = (profile.get("full_name") or "").split()
+    first = profile.get("first_name") or (parts[0] if parts else "")
+    last = profile.get("last_name") or (" ".join(parts[1:]) if len(parts) > 1 else "")
     return {
-        "first_name": profile.get("first_name") or "",
-        "last_name": profile.get("last_name") or "",
+        "first_name": first,
+        "last_name": last,
         "full_name": profile.get("full_name") or "",
         "email": profile.get("email") or "",
         "phone": profile.get("phone") or "",
@@ -93,3 +98,43 @@ def known_answer(question: str, profile: dict) -> str | None:
                             "hispanic", "מגדר", "מוצא")):
         return "Decline To Self Identify"   # never fabricate a protected trait
     return None
+
+# --------------------------- question hygiene ------------------------------
+
+_ID_PREFIX = re.compile(r"^\s*(?:question[_-]?\d+|\d{2,}|[a-z][a-z0-9_]*_[a-z0-9_]+)\s+", re.I)
+
+
+def clean_question(label: str) -> str:
+    """Turn a raw form label into the question a human would recognise.
+
+    ATS markup often prefixes the field id and repeats the label
+    ("question_67972490 are you legally authorized…", "country country*"), and
+    a person should never be shown that.
+    """
+    q = (label or "").replace("\n", " ")
+    q = re.sub(r"\s+", " ", q).strip().strip("*").strip()
+    prev = None
+    while q != prev:                       # strip repeated id-ish prefixes
+        prev = q
+        q = _ID_PREFIX.sub("", q).strip()
+    words = q.split()
+    for size in range(len(words) // 2, 0, -1):     # drop a duplicated phrase
+        if words[:size] == words[size:size * 2]:
+            words = words[size:]
+            break
+    q = " ".join(words).strip().strip("*").strip()
+    return q[:1].upper() + q[1:] if q else ""
+
+
+def worth_asking(label: str, profile: dict | None = None) -> bool:
+    """False for noise, credentials, and anything we already answer ourselves."""
+    q = clean_question(label)
+    if len(q) < 8 or q.lower() in ("required field", "required", "other"):
+        return False
+    if is_prohibited(q):
+        return False
+    profile = profile or {}
+    vk = match_text_field(q.lower())          # name, email, phone, links…
+    if vk and profile_values(profile).get(vk):
+        return False
+    return known_answer(q, profile) is None

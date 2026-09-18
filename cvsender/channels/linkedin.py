@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 
 from ..config import SCREENSHOT_DIR, STEP_TIMEOUT_S
 from ..engine import answerbank as ab
-from .base import (READY, NEEDS_INPUT, FAILED, SENT, SEND_FAILED,
+from .base import (Question, READY, NEEDS_INPUT, FAILED, SENT, SEND_FAILED,
                    SEND_NEEDS_INPUT,
                    ConfirmationEvidence, FieldFill, Job, PrepareResult,
                    SendHandle, SendResult)
@@ -106,6 +106,54 @@ async def _card_company(anchor) -> str:
     except Exception:
         pass
     return ""
+
+
+
+# One control, read with the label a human sees. Element-scoped on purpose:
+# LinkedIn's apply dialog lives inside a shadow root, so a page-level
+# document.querySelector finds nothing — Playwright's selectors pierce it, and
+# this runs on each element it hands back.
+_FIELD_JS = r"""el => {
+  const root = el.getRootNode();
+  const clean = t => (t || "").replace(/\s+/g, " ").replace(/^\*+|\*+$/g, "").trim().slice(0, 200);
+  const labelText = () => {
+    if (el.id && root.querySelector) {
+      const l = root.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (l && l.innerText.trim()) return l.innerText;
+    }
+    const wrap = el.closest("label");
+    if (wrap && wrap.innerText.trim()) return wrap.innerText;
+    const grp = el.closest("fieldset, [role=radiogroup], [role=group]");
+    if (grp) {
+      const lg = grp.querySelector("legend, h3, h4, [role=heading]");
+      if (lg && lg.innerText.trim()) return lg.innerText;
+    }
+    let n = el.previousElementSibling, hops = 0;
+    while (n && hops++ < 3) {
+      if (n.innerText && n.innerText.trim()) return n.innerText;
+      n = n.previousElementSibling;
+    }
+    const par = el.parentElement;
+    if (par && par.innerText && par.innerText.trim()) return par.innerText;
+    return el.getAttribute("aria-label") || el.getAttribute("name") || "";
+  };
+  const own = () => {
+    const wrap = el.closest("label");
+    return clean(wrap ? wrap.innerText : (el.getAttribute("aria-label") || el.value || ""));
+  };
+  return {
+    tag: el.tagName, type: (el.type || "").toLowerCase(), id: el.id || "",
+    name: el.name || "", required: !!(el.required || el.getAttribute("aria-required") === "true"),
+    value: el.tagName === "SELECT" ? (el.value || "") : (el.value || ""),
+    checked: !!el.checked, label: clean(labelText()), own: own(),
+    options: el.tagName === "SELECT"
+      ? [...el.options].map(o => clean(o.label || o.value)).filter(Boolean) : [],
+  };
+}"""
+
+_CONTROLS = ("div[role='dialog'] input, div[role='dialog'] select, "
+             "div[role='dialog'] textarea, div.jobs-easy-apply-content input, "
+             "div.jobs-easy-apply-content select, div.jobs-easy-apply-content textarea")
 
 
 class LinkedInChannel:
@@ -276,9 +324,13 @@ class LinkedInChannel:
             await self._upload(page, cv_path)
             missing = await self._fill_step(page, profile, filled)
             if missing:
-                return PrepareResult(state=NEEDS_INPUT, filled=filled,
-                                     answers=answers,
-                                     reason="needs answers: " + "; ".join(missing[:2]))
+                shot = await self._capture(page)
+                return PrepareResult(
+                    state=NEEDS_INPUT, filled=filled, answers=answers,
+                    questions=missing, screenshot=shot,
+                    reason="Answer " + ("1 question" if len(missing) == 1
+                                        else f"{len(missing)} questions")
+                           + ": " + "; ".join(q.label[:40] for q in missing[:2]))
             sub = await self._find(page, SUBMIT)
             if sub:
                 if not submit:
@@ -305,57 +357,127 @@ class LinkedInChannel:
                 break
             await page.wait_for_timeout(1500)
             if await self._error_flagged(page):
-                return PrepareResult(state=NEEDS_INPUT, filled=filled, answers=answers,
-                                     reason="required field flagged")
+                asked: list[Question] = []
+                await self._fill_step(page, profile, filled, asked)
+                shot = await self._capture(page)
+                return PrepareResult(
+                    state=NEEDS_INPUT, filled=filled, answers=answers,
+                    questions=asked, screenshot=shot,
+                    reason=("Answer " + ("1 question" if len(asked) == 1
+                                         else f"{len(asked)} questions") + ": "
+                            + "; ".join(q.label[:40] for q in asked[:2]))
+                           if asked else "required field flagged")
         return PrepareResult(state=NEEDS_INPUT, filled=filled, answers=answers,
                              reason="too many steps")
 
-    async def _fill_step(self, page, profile, filled) -> list[str]:
-        missing: list[str] = []
-        scope = "div.jobs-easy-apply-content, div[role='dialog']"
+    async def _read_fields(self, page) -> list[dict]:
+        """Every visible control in the apply dialog, with its visible label."""
+        out: list[dict] = []
+        radios: dict[str, dict] = {}
         try:
-            els = await page.query_selector_all(
-                f"{scope} input[type='text'], {scope} input[type='tel'], "
-                f"{scope} input[type='email'], {scope} textarea")
+            els = await page.query_selector_all(_CONTROLS)
         except Exception:
-            els = []
-        vals = ab.profile_values(profile)
+            return out
         for el in els:
             try:
-                if not await el.is_visible() or (await el.input_value()):
+                if not await el.is_visible():
                     continue
-                label = ((await el.get_attribute("aria-label"))
-                         or (await el.get_attribute("name")) or "")
-                if ab.is_prohibited(label):
-                    continue
+                f = await el.evaluate(_FIELD_JS)
+            except Exception:
+                continue
+            if f["type"] in ("hidden", "file", "submit", "button"):
+                continue
+            f["el"] = el
+            if f["type"] == "radio":
+                key = f["name"] or f["label"]
+                g = radios.setdefault(key, {"kind": "radio", "label": f["label"],
+                                            "name": f["name"], "options": [],
+                                            "required": False, "value": "", "els": []})
+                g["label"] = g["label"] or f["label"]
+                g["required"] = g["required"] or f["required"]
+                if f["own"]:
+                    g["options"].append(f["own"])
+                    g["els"].append((f["own"], el))
+                if f["checked"]:
+                    g["value"] = f["own"]
+                continue
+            kind = ("checkbox" if f["type"] == "checkbox"
+                    else "select" if f["tag"] == "SELECT" else "text")
+            out.append({**f, "kind": kind,
+                        "value": ("Yes" if f["checked"] else "") if kind == "checkbox" else f["value"]})
+        return out + list(radios.values())
+
+    async def _fill_step(self, page, profile, filled, asked=None):
+        """Fill what we know; return the questions we will not invent answers to.
+
+        Every control is read with its visible label, so an unanswered question
+        reaches the human as a real question ("What is your GPA?") instead of
+        the old useless 'required field flagged'. Answers learned once are
+        reused on every later application.
+        """
+        vals = ab.profile_values(profile)
+        missing: list[Question] = []
+        for f in await self._read_fields(page):
+            label = (f.get("label") or "").strip()
+            kind = f.get("kind")
+            if not label or ab.is_prohibited(label):
+                continue
+            if f.get("value"):
+                continue                       # already answered / prefilled
+            ans = None
+            if kind == "text":
                 vk = ab.match_text_field(label.lower())
                 if vk and vals.get(vk):
-                    await el.fill(vals[vk])
-                    filled.append(FieldFill(vk, vals[vk]))
-            except Exception:
-                continue
-        try:
-            selects = await page.query_selector_all(f"{scope} select")
-        except Exception:
-            selects = []
-        for sel in selects:
-            try:
-                if not await sel.is_visible():
-                    continue
-                label = ((await sel.get_attribute("aria-label")) or "").lower()
+                    ans = vals[vk]
+            if ans is None:
                 ans = ab.known_answer(label, profile)
-                if ans:
-                    try:
-                        await sel.select_option(label=ans)
-                        continue
-                    except Exception:
-                        pass
-                req = await sel.get_attribute("required")
-                if req is not None and not (await sel.input_value()):
-                    missing.append(label[:50] or "dropdown question")
-            except Exception:
+            if ans is not None and await self._apply_answer(page, f, str(ans)):
+                filled.append(FieldFill(label[:60], str(ans)))
                 continue
+            if f.get("required"):
+                missing.append(Question(label=label[:200], kind=kind or "text",
+                                        options=[o for o in (f.get("options") or []) if o][:12],
+                                        required=True,
+                                        reason="needs your answer once"))
+        if asked is not None:
+            asked.extend(missing)
         return missing
+
+    async def _apply_answer(self, page, field: dict, answer: str) -> bool:
+        """Put one answer into one control. False if it could not be applied."""
+        kind, el = field.get("kind"), field.get("el")
+        try:
+            if kind == "text" and el:
+                await el.fill(answer)
+                return True
+            if kind == "select" and el:
+                for how in ("label", "value"):
+                    try:
+                        await el.select_option(**{how: answer})
+                        return True
+                    except Exception:
+                        continue
+                match = next((o for o in (field.get("options") or [])
+                              if answer.lower() in o.lower() or o.lower() in answer.lower()), None)
+                if match:
+                    await el.select_option(label=match)
+                    return True
+                return False
+            if kind == "checkbox" and el:
+                if answer.strip().lower() in ("yes", "true", "1", "on", "כן"):
+                    await el.check()
+                    return True
+                return False
+            if kind == "radio":
+                want = answer.strip().lower()
+                for text, rel in field.get("els") or []:
+                    t = (text or "").strip().lower()
+                    if t == want or (want and (want in t or t.startswith(want[:20]))):
+                        return await self._click(rel)
+                return False
+        except Exception:
+            return False
+        return False
 
     async def _upload(self, page, cv_path):
         if not cv_path:

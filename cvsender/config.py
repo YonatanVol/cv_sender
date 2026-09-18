@@ -26,6 +26,12 @@ PREPARE_DELAY_S = 2.0        # polite pause between prepared items
 PREPARE_CONCURRENCY = 4
 MAX_CAP = 300                # ceiling on items staged per run
 SEND_DELAY_S = 6.0           # human-scale pause between real sends (ban safety)
+# LinkedIn is the only channel that auto-sends, and automating it is against
+# LinkedIn's User Agreement, so volume is capped in code. The setting
+# 'linkedin.daily_cap' may lower this but can never raise it past the ceiling —
+# not from the UI, not from a script, not from a restored cloud backup.
+LINKEDIN_DAILY_CAP = 15
+LINKEDIN_CAP_CEILING = 20
 SEND_JITTER_S = 3.0          # added random 0..jitter to each send delay
 MAX_ATTEMPTS = 4             # per-item retry cap before a job stops being re-offered
 HEARTBEAT_S = 2.0            # run heartbeat cadence (crash detection)

@@ -496,6 +496,60 @@ def list_answers() -> list[dict]:
             "SELECT * FROM answer_bank ORDER BY uses DESC, updated_at DESC")]
 
 
+def answer_gaps(limit: int = 60) -> list[dict]:
+    """Questions blocking the queue right now, most-blocking first.
+
+    One row per distinct question (normalised), with how many postings it
+    blocks and an example. Answering it once unblocks all of them, which is the
+    single biggest lever on how many applications can finish.
+    """
+    from ..engine import answerbank as ab
+    profile = get_profile() or {}
+    gaps: dict[str, dict] = {}
+    with ro() as c:
+        rows = c.execute(
+            "SELECT id, company, title, result_json FROM run_items "
+            "WHERE state IN ('needs_input','failed') AND result_json IS NOT NULL "
+            "AND id NOT IN (SELECT item_id FROM applications WHERE item_id IS NOT NULL) "
+            "ORDER BY updated_at DESC LIMIT 2000").fetchall()
+    for r in rows:
+        try:
+            questions = (json.loads(r["result_json"]) or {}).get("questions") or []
+        except (TypeError, ValueError):
+            continue
+        for q in questions:
+            raw = (q or {}).get("label") if isinstance(q, dict) else None
+            if not raw:
+                continue
+            label = ab.clean_question(raw)
+            if not ab.worth_asking(label, profile):
+                continue                      # noise, credential, or self-answerable
+            qkey = normalize_question(label)
+            if not qkey or recall_answer(label):
+                continue                      # already answered once
+            g = gaps.setdefault(qkey, {"qkey": qkey, "label": label,
+                                       "kind": (q.get("kind") or "text"),
+                                       "options": q.get("options") or [],
+                                       "blocking": 0, "item_ids": [],
+                                       "example": f"{r['company']} — {r['title']}"})
+            g["blocking"] += 1
+            if len(g["item_ids"]) < 50:
+                g["item_ids"].append(r["id"])
+            if not g["options"] and q.get("options"):
+                g["options"] = q["options"]
+    out = sorted(gaps.values(), key=lambda g: -g["blocking"])
+    return out[:limit]
+
+
+def requeue_items(item_ids: list[int], reason: str) -> int:
+    """Send items back to the queue so the next run retries them."""
+    n = 0
+    for iid in item_ids:
+        n += 1 if transition_item(iid, ["needs_input", "failed"], "queued",
+                                  reason=reason) else 0
+    return n
+
+
 # --------------------------- daily counters --------------------------------
 
 def _today() -> str:
