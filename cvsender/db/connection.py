@@ -20,7 +20,10 @@ def connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
+    # A prepare run writes an item every few seconds and the send worker holds
+    # a write for longer; 5s was short enough that a plain page load could lose
+    # the race and raise "database is locked".
+    conn.execute("PRAGMA busy_timeout=15000")
     return conn
 
 

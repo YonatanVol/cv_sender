@@ -115,3 +115,24 @@ def test_expired_sessions_are_purged(a):
     with tx() as c:
         c.execute("UPDATE sessions SET expires_at = ?", (time.time() - 1,))
     assert store.purge_expired_sessions() == 1
+
+
+def test_a_locked_database_does_not_sign_you_out(a, monkeypatch):
+    """A prepare run writing every few seconds must not 500 a page load.
+
+    Measured 2026-09-22: POST /api/runs/45/items/448/confirm returned 500 from
+    touch_session while run #45 was preparing, and the send it should have
+    started never happened. Whether a session is valid is a read; sliding its
+    expiry is housekeeping that may be skipped.
+    """
+    import sqlite3
+    from cvsender.db import store
+
+    token = a.create_session()
+
+    class Locked:
+        def __enter__(self): raise sqlite3.OperationalError("database is locked")
+        def __exit__(self, *exc): return False
+
+    monkeypatch.setattr(store, "tx", lambda: Locked())
+    assert a.valid_session(token) is True

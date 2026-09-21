@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import time
 from typing import Any, Optional, Sequence
 
@@ -516,19 +517,33 @@ def create_session(token_hash: str, ttl_s: float) -> None:
 
 
 def touch_session(token_hash: str, ttl_s: float) -> bool:
-    """Validate and slide the expiry. False when unknown or expired."""
+    """Validate and slide the expiry. False when unknown or expired.
+
+    Whether the session is valid is decided by a READ, which never waits for the
+    run that is busy writing. Sliding the expiry and reaping a dead session are
+    housekeeping: if the database is locked at that moment they are skipped, so
+    a busy run can no longer turn a signed-in page load into a 500.
+    """
     now = _now()
-    with tx() as c:
+    with ro() as c:
         row = c.execute("SELECT expires_at FROM sessions WHERE token_hash=?",
                         (token_hash,)).fetchone()
-        if row is None:
-            return False
-        if row["expires_at"] < now:
-            c.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash,))
-            return False
-        c.execute("UPDATE sessions SET last_seen=?, expires_at=? WHERE token_hash=?",
-                  (now, now + ttl_s, token_hash))
-        return True
+    if row is None:
+        return False
+    if row["expires_at"] < now:
+        try:
+            with tx() as c:
+                c.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash,))
+        except sqlite3.OperationalError:
+            pass
+        return False
+    try:
+        with tx() as c:
+            c.execute("UPDATE sessions SET last_seen=?, expires_at=? WHERE token_hash=?",
+                      (now, now + ttl_s, token_hash))
+    except sqlite3.OperationalError:
+        pass                       # the expiry slides on the next request
+    return True
 
 
 def delete_session(token_hash: str) -> None:
