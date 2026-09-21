@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import shutil
 import socket
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -52,12 +55,19 @@ def _startup():
             f"Refusing to bind {config.HOST} without authentication. "
             "Set a passphrase first (open the app on localhost -> Settings, "
             "or run: python -m cvsender.setpass).")
-    swept = store.sweep_stale_runs(config.STALE_RUN_S)
-    if swept:
-        print(f"[startup] recovered stale runs: {swept}")
-    stuck = store.sweep_stuck_items(config.STUCK_ITEM_S)
-    if stuck:
-        print(f"[startup] rescued {stuck} item(s) stuck in 'sending'")
+    # Housekeeping, not a precondition. A run that is mid-write holds the
+    # database long enough that this raised "database is locked" and killed
+    # startup outright; the service only came back because launchd retried.
+    # Both sweeps also run from /api/assist, so skipping one costs nothing.
+    try:
+        swept = store.sweep_stale_runs(config.STALE_RUN_S)
+        if swept:
+            print(f"[startup] recovered stale runs: {swept}")
+        stuck = store.sweep_stuck_items(config.STUCK_ITEM_S)
+        if stuck:
+            print(f"[startup] rescued {stuck} item(s) stuck in 'sending'")
+    except sqlite3.OperationalError as e:
+        print(f"[startup] skipped the run sweep, database busy: {e}")
 
 
 # Only form screenshots are served from the data directory. The folder also
@@ -223,6 +233,32 @@ def local_origins() -> set[str]:
     if extra:
         origins.add(extra.rstrip("/"))
     return origins
+
+
+def phone_access() -> dict:
+    """How to reach this app from the phone, as a name rather than an address.
+
+    An IP changes with the network and is nobody's idea of a link. The Mac's
+    Bonjour name (…​.local) is stable and resolves on the same Wi-Fi from an
+    iPhone without installing anything. Off Wi-Fi needs Tailscale, which only
+    Yonatan can install, so we report honestly whether it is there.
+    """
+    name = socket.gethostname().split(".")[0]
+    tailnet = store.get_setting("public_origin") or ""
+    ts = shutil.which("tailscale") or (
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+        if os.path.exists("/Applications/Tailscale.app") else "")
+    return {
+        "lan_url": f"http://{name}.local:{config.PORT}",
+        "lan_works": "on the same Wi-Fi as this Mac",
+        "anywhere_url": tailnet,
+        "tailscale_installed": bool(ts),
+    }
+
+
+@app.get("/api/where")
+def api_where():
+    return JSONResponse(phone_access())
 
 
 def _check_origin(request: Request) -> None:

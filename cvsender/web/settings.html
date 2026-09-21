@@ -5,66 +5,38 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Settings — CV Sender</title>
 <link rel="manifest" href="/static/manifest.webmanifest">
-<meta name="theme-color" content="#0f1115">
+<meta name="theme-color" content="#0b0d12">
+<link rel="stylesheet" href="/static/shared.css">
 <style>
-  :root{--bg:#0f1115;--card:#1a1d24;--line:#2a2f3a;--fg:#e7e9ee;--mut:#9aa3b2;
-        --acc:#4f8cff;--ok:#2ecc71;--warn:#f1c40f;--bad:#e74c3c}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--fg);
-       font:16px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;
-       padding:0 0 60px;-webkit-text-size-adjust:100%}
-  header{display:flex;align-items:center;gap:12px;padding:14px 16px;
-         border-bottom:1px solid var(--line);background:var(--card);
-         position:sticky;top:0;z-index:5}
-  .brand{color:var(--acc);font-weight:800;text-decoration:none;font-size:15px}
-  h1{font-size:16px;margin:0}
-  main{max-width:620px;margin:16px auto;padding:0 14px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
-        padding:16px;margin-bottom:14px}
-  h2{font-size:14px;margin:0 0 12px;color:var(--fg)}
-  label{display:block;font-size:12px;color:var(--mut);margin:12px 0 5px}
-  input,select{width:100%;padding:13px 12px;font-size:16px;border-radius:10px;
-        border:1px solid var(--line);background:#11141a;color:var(--fg)}
-  button{width:100%;padding:15px;font-size:16px;font-weight:700;border:0;
-         border-radius:12px;background:var(--acc);color:#fff;cursor:pointer;
-         margin-top:14px}
-  button.ghost{background:#11141a;border:1px solid var(--line);color:var(--fg)}
-  .cv{display:flex;align-items:center;gap:12px;background:#11141a;
-      border:1px solid var(--line);border-radius:12px;padding:13px}
-  .cv .ico{font-size:26px}
-  .cv .info{flex:1;min-width:0}
-  .cv .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .cv .sub{color:var(--mut);font-size:12px}
-  .filebtn{display:block;text-align:center;padding:15px;border-radius:12px;
-           border:1px dashed var(--line);color:var(--acc);font-weight:700;
-           margin-top:12px;cursor:pointer}
-  input[type=file]{display:none}
-  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
-  .chip{padding:9px 14px;border-radius:22px;border:1px solid var(--line);
-        background:#11141a;color:var(--mut);font-size:14px;cursor:pointer;
-        user-select:none}
-  .chip.on{border-color:var(--acc);color:var(--acc);font-weight:700}
-  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;
-         background:var(--card);border:1px solid var(--line);border-radius:11px;
-         padding:12px 18px;font-size:15px;z-index:30;max-width:92vw;text-align:center}
-  .hide{display:none}
-  .nav{display:flex;gap:10px;margin-bottom:14px}
-  .nav a{flex:1;text-align:center;padding:12px;border-radius:11px;
-         background:var(--card);border:1px solid var(--line);color:var(--fg);
-         text-decoration:none;font-weight:700;font-size:14px}
+  label { display: block; font-size: 12px; color: var(--mut); margin: 14px 0 6px; }
+  .cv { display: flex; align-items: center; gap: 13px; background: var(--well);
+        border: 1px solid var(--line-soft); border-radius: var(--r-sm); padding: 14px; }
+  .cv .ico { font-size: 25px; }
+  .cv .info { flex: 1; min-width: 0; }
+  .cv .nm { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .filebtn { display: block; text-align: center; padding: 14px; border-radius: var(--r-sm);
+             border: 1px dashed var(--line); color: var(--acc); font-weight: 650;
+             margin-top: 12px; cursor: pointer; }
+  input[type=file] { display: none; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .link { display: block; font-family: ui-monospace, Menlo, monospace; font-size: 14px;
+          background: var(--well); border: 1px solid var(--line-soft);
+          border-radius: var(--r-sm); padding: 13px; color: var(--acc);
+          text-decoration: none; word-break: break-all; }
 </style>
 </head>
 <body>
-<header>
-  <a class="brand" href="/assist">← Assist</a>
-  <h1>Settings</h1>
-</header>
+<header id="hdr"></header>
 <main>
-  <div class="nav">
-    <a href="/assist">⚡ Queue</a>
-    <a href="/answers">💬 Answers</a>
-    <a href="/dismissed">🚫 Dismissed</a>
+  <div class="card">
+    <h2>On your phone</h2>
+    <p class="sub" id="whereSub">Checking…</p>
+    <a class="link" id="lanUrl" href="#">…</a>
+    <p class="sub" style="margin-top:10px">Open it in Safari on your iPhone, then
+      Share → Add to Home Screen. It behaves like an app from there.</p>
+    <p class="sub" id="anywhere" style="margin-top:10px"></p>
   </div>
+
 
   <div class="card">
     <h2>Your CV</h2>
@@ -143,20 +115,28 @@
   </div>
 </main>
 <div id="toast" class="toast hide"></div>
+<script src="/static/shared.js"></script>
 <script>
-const $ = id => document.getElementById(id);
+$('hdr').innerHTML = navBar('/settings');
 const CHANNELS = ['greenhouse','lever','ashby','comeet','linkedin'];
 let channels = [];
 
-function toast(m){const t=$('toast');t.textContent=m;t.classList.remove('hide');
-  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.add('hide'),3000);}
-async function api(method,url,body){
-  const o={method,headers:{}};
-  if(body!==undefined){o.headers['Content-Type']='application/json';o.body=JSON.stringify(body);}
-  const r=await fetch(url,o);
-  if(!r.ok){let m=r.statusText;try{m=(await r.json()).detail||m;}catch{}throw new Error(m);}
-  return r.json();
-}
+
+// Where to open this from the phone. A name, not an address: the IP changes
+// with the network and is nobody's idea of a link.
+(async () => {
+  try {
+    const w = await api('GET', '/api/where');
+    $('lanUrl').textContent = w.lan_url;
+    $('lanUrl').href = w.lan_url;
+    $('whereSub').textContent = 'Works ' + w.lan_works + '.';
+    $('anywhere').textContent = w.anywhere_url
+      ? 'Away from home: ' + w.anywhere_url
+      : (w.tailscale_installed
+         ? 'Tailscale is installed — set its address in public_origin to reach this away from home.'
+         : 'Away from home needs Tailscale, which only you can install (it asks for your password and account).');
+  } catch (e) { $('whereSub').textContent = e.message; }
+})();
 function kb(n){return n>=1024*1024?(n/1048576).toFixed(1)+' MB':Math.round(n/1024)+' KB';}
 
 function showCv(p){
