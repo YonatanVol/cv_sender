@@ -152,6 +152,13 @@ def add_item(run_id: int, item: dict) -> Optional[int]:
         "reason": item.get("reason"),
         "created_at": now,
         "updated_at": now,
+        # Freshness and identity travel with the job from discovery. They were
+        # silently dropped while this payload had a fixed column list.
+        "identity": item.get("identity"),
+        "posted_at": item.get("posted_at"),
+        "first_seen_at": item.get("first_seen_at", now),
+        "last_seen_at": item.get("last_seen_at", now),
+        "liveness": item.get("liveness", "unknown"),
     }
     cols = ", ".join(payload)
     ph = ", ".join("?" for _ in payload)
@@ -366,6 +373,34 @@ def already_handled(dedupe_key: str, content_hash: Optional[str] = None,
     """Skip this job in future runs: either genuinely sent, or dismissed."""
     return already_sent(dedupe_key, content_hash) or \
         is_dismissed(dedupe_key, content_hash, url)
+
+
+def backfill_identities() -> int:
+    """Give existing rows their identity once, so old duplicates collapse too."""
+    from ..channels.base import job_identity
+    n = 0
+    with ro() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT id, company, title, location FROM run_items WHERE identity IS NULL")]
+    with tx() as c:
+        for r in rows:
+            c.execute("UPDATE run_items SET identity=? WHERE id=?",
+                      (job_identity(r["company"] or "", r["title"] or "",
+                                    r["location"] or ""), r["id"]))
+            n += 1
+    return n
+
+
+def identity_in_queue(identity: str, within_s: float = 7 * 86400) -> bool:
+    """Is this real position already waiting, from any board?"""
+    if not identity:
+        return False
+    with ro() as c:
+        return c.execute(
+            "SELECT 1 FROM run_items WHERE identity=? AND state IN "
+            "('needs_input','ready','failed') AND COALESCE(liveness,'unknown') != 'closed' "
+            "AND updated_at >= ? LIMIT 1",
+            (identity, _now() - within_s)).fetchone() is not None
 
 
 def waiting_in_queue(dedupe_key: str, within_s: float = 7 * 86400) -> bool:
@@ -683,7 +718,7 @@ def assist_queue(limit: int = 200) -> list[dict]:
     """Everything a human could finish right now: filled-but-blocked items,
     newest first, excluding anything already sent (dedupe by key)."""
     with ro() as c:
-        return [dict(r) for r in c.execute(
+        rows = [dict(r) for r in c.execute(
             "SELECT i.* FROM run_items i "
             "WHERE i.state IN ('needs_input','failed','ready') "
             "AND COALESCE(i.liveness,'unknown') != 'closed' "
@@ -694,6 +729,18 @@ def assist_queue(limit: int = 200) -> list[dict]:
             "GROUP BY i.dedupe_key "
             "ORDER BY (i.state='ready') DESC, i.score DESC, i.id DESC LIMIT ?",
             (limit,)).fetchall()]
+    # One real position, one card: the same job listed on LinkedIn and on a
+    # company board has two dedupe_keys but one identity. Collapsed here rather
+    # than in SQL so rows of the same key with slightly different titles (a
+    # scraped vs. an API title) still count as one.
+    seen, out = set(), []
+    for r in rows:
+        key = r.get("identity") or r.get("dedupe_key")
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
 
 
 def blocked_companies(min_hits: int = 1) -> set[str]:

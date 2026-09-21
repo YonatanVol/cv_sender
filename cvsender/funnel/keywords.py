@@ -115,3 +115,31 @@ FOREIGN_PLACES = [
 ]
 # Regions that do include Israel, so they stay eligible.
 INCLUSIVE_REGIONS = ["emea", "global", "worldwide", "anywhere", "middle east"]
+
+
+# What Yonatan is actually looking for (his words, 2026-09-21): software
+# developer / engineer intern, student and junior positions, backend, C/C++,
+# low-level, embedded, systems, plus data or infrastructure roles when they are
+# genuinely software development.
+STUDENT_HINTS = ["student", "students", "computer science student", "b.sc", "bsc",
+                 "undergraduate", "final year", "part-time student", "working student"]
+STUDENT_HINTS_HE = ["סטודנט", "סטודנטית", "תואר ראשון", "שנה ג", "שנה שלישית",
+                    "לצד הלימודים", "משרה לסטודנט"]
+
+# Skill → the words that mean it. Each matched skill adds a few points, capped,
+# so a long list can never outweigh seniority.
+SKILL_SIGNALS = [
+    ("C / C++", ["c++", "cpp", "c/c++", " c ", "embedded c"]),
+    ("Python", ["python", "fastapi", "django", "flask", "pandas"]),
+    ("Java", ["java", "spring boot", "jvm"]),
+    ("backend", ["backend", "back-end", "server-side", "microservices", "rest api",
+                 "apis", "בקאנד"]),
+    ("Linux / systems", ["linux", "unix", "kernel", "systems programming",
+                         "low-level", "low level", "operating systems", "posix"]),
+    ("embedded", ["embedded", "firmware", "rtos", "bare metal", "מוטמע"]),
+    ("networking", ["networking", "tcp/ip", "sockets", "protocols", "distributed systems"]),
+    ("algorithms", ["algorithms", "data structures", "algorithmic", "אלגוריתמ"]),
+    ("SQL / data", ["sql", "postgres", "postgresql", "mysql", "etl", "data pipeline"]),
+    ("TypeScript / React", ["typescript", "react", "next.js", "node.js", "javascript"]),
+    ("cloud / docker", ["docker", "kubernetes", "aws", "gcp", "azure", "ci/cd"]),
+]

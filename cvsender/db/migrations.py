@@ -218,6 +218,14 @@ MIGRATIONS: list[str] = [
     CREATE INDEX idx_items_liveness ON run_items(liveness, checked_at);
     UPDATE run_items SET first_seen_at = created_at, last_seen_at = updated_at;
     """,
+
+    # 009 — one real position, one card. dedupe_key is channel-prefixed, so the
+    # same job listed on LinkedIn and on Greenhouse was structurally two rows
+    # and two cards in the queue. identity is company|role|city, normalised.
+    """
+    ALTER TABLE run_items ADD COLUMN identity TEXT;
+    CREATE INDEX idx_items_identity ON run_items(identity);
+    """,
 ]
 
 

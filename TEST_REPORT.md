@@ -77,3 +77,41 @@ classification, "never dismiss on a guess", queue behaviour). **239 passed.**
 "no space left on device". Freed ~500 MB of regenerable browser caches under
 `data2/linkedin_profile` and screenshots older than 14 days; the LinkedIn login was
 untouched and still valid for 357 days. The wider disk problem is Yonatan's to address.
+
+## 2026-09-21 — Sprint 3: duplicates and explainable scoring
+
+**Top 15 of the live queue after rescoring** (264 postings rescored; 119 would no longer
+pass the balanced bar):
+
+| Score | Band | Company | Role |
+|---|---|---|---|
+| 91 | excellent | Maytronics | Junior Embedded Software Engineer |
+| 83 | strong | Glassix | Junior Fullstack Developer |
+| 83 | strong | InfinityLabs R&D ×4 | Junior Software / Data / ML Engineer |
+| 83 | strong | OnCloud | Junior Cloud Security Engineer |
+| 83 | strong | ForSight Robotics | Junior Algorithm Engineer |
+| 79 | strong | RAD | Java Backend Developer |
+| 79 | strong | dropbox | Software Engineering Intern |
+| 71 | possible | bringg, KayHut, abra, Fast Simon | Backend / Embedded Engineer |
+
+Every one carries its reasons, e.g. `91 excellent fit — clear software role +5,
+junior role +20, embedded +8, in Israel +8`.
+
+**Scoring checks** (`tests/test_funnel.py`): 0–100 with a band; the score always equals
+50 + its contributions; a hard "5+ years required" drops a job while "5 years preferred /
+יתרון" keeps it; a senior title is a **gate**, so a senior posting stuffed with matching
+keywords is still rejected (keyword bonuses used to outweigh the penalty); strict means
+strong-fit only.
+
+**Duplicates** (`tests/test_duplicates.py`): `Comigo.io` = `comigo`, `Acme Technologies Ltd`
+= `Acme`, `(m/f/d)` and `- Remote` suffixes ignored; different role, company or city stay
+separate. One job on two boards collapses to one card. Live queue 268 → **264**.
+
+**Regression found while testing:** `store.add_item` had a fixed column list and silently
+dropped `identity`, `posted_at` and `liveness`, so both the freshness work and the
+duplicate collapse would have had nothing to read. Covered by
+`test_add_item_persists_identity_and_freshness`. **265 passed.**
+
+*Limitation:* queued rows do not store the job description, so this rescoring saw titles
+only. Newly discovered jobs score with the description too, which is where the skill
+signals (C/C++, Linux, embedded, algorithms) mostly come from.

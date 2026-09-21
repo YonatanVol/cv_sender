@@ -16,7 +16,9 @@ def test_unlabeled_software_role_is_kept():
 
 def test_explicit_senior_is_dropped():
     v = score_job(J("Senior Backend Engineer"))
-    assert not v.keep and v.stage == "score"
+    # A senior title is a gate now, not a score: keyword bonuses used to
+    # outweigh the penalty and let senior roles through.
+    assert not v.keep and v.stage == "seniority"
 
 
 def test_junior_boost():
@@ -163,3 +165,52 @@ def test_a_remote_flagged_us_job_is_still_rejected():
                                       "APAC", "Shanghai, China"])
 def test_other_regions_are_not_reachable_either(location):
     assert score_job(J("Software Engineer", location=location)).keep is False
+
+
+# ---- 2026-09-21: the score is 0-100 and says why ----
+
+def test_score_is_zero_to_one_hundred_with_a_band():
+    v = score_job(J("Junior C++ Software Developer",
+                    desc="Linux, algorithms, 0-2 years of experience"))
+    assert 0 <= v.score <= 100 and v.band in dict((n, 1) for _, n in __import__(
+        "cvsender.funnel.scoring", fromlist=["BANDS"]).BANDS)
+    assert v.keep and v.score >= 75
+
+
+def test_every_score_can_be_explained():
+    v = score_job(J("Student Software Developer", desc="C, C++, Linux, algorithms"))
+    labels = [c.label for c in v.contributions]
+    assert any("student" in l.lower() for l in labels)
+    assert any("C / C++" == l for l in labels)
+    assert all(isinstance(c.points, int) and c.points != 0 for c in v.contributions)
+    assert v.score == max(0, min(100, 50 + sum(c.points for c in v.contributions)))
+    assert v.explain().startswith(f"{v.score:.0f} ")
+
+
+def test_a_hard_years_requirement_sinks_a_job_a_preference_does_not():
+    hard = score_job(J("Backend Developer",
+                       desc="Python. 5+ years of experience required."))
+    soft = score_job(J("Backend Developer",
+                       desc="Python. 5 years of experience preferred, an advantage."))
+    assert hard.keep is False, hard.explain()
+    assert soft.keep is True, soft.explain()
+    assert soft.score > hard.score + 20
+
+
+def test_hebrew_soft_requirement_is_read_as_a_preference():
+    from cvsender.funnel.scoring import years_are_required
+    assert years_are_required("נדרש ניסיון של 5 שנים") is True
+    assert years_are_required("ניסיון של 3 שנים - יתרון") is False
+
+
+def test_skills_cannot_outweigh_seniority():
+    """A senior role stuffed with matching keywords must still be rejected."""
+    v = score_job(J("Senior Staff Backend Engineer",
+                    desc="python java c++ linux embedded networking algorithms sql react docker"))
+    assert v.keep is False, v.explain()
+
+
+def test_strict_means_only_clear_junior_roles():
+    assert score_job(J("Software Engineer"), strictness="strict").keep is False
+    assert score_job(J("Junior Software Engineer"), strictness="strict").keep is True
+    assert score_job(J("Software Engineer"), strictness="balanced").keep is True
