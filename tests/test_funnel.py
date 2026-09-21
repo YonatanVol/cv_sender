@@ -214,3 +214,17 @@ def test_strict_means_only_clear_junior_roles():
     assert score_job(J("Software Engineer"), strictness="strict").keep is False
     assert score_job(J("Junior Software Engineer"), strictness="strict").keep is True
     assert score_job(J("Software Engineer"), strictness="balanced").keep is True
+
+
+@pytest.mark.parametrize("title", [
+    "Software Team Leader (C)",      # scored 86 on 2026-09-21 — 'lead' misses 'Leader'
+    "Group Leader, Backend",
+    "Head of Engineering",
+    "Chief Architect",
+    "Engineering Manager",
+    "מנהל/ת פיתוח",
+    "ראש צוות תוכנה",
+])
+def test_leadership_titles_are_not_junior_roles(title):
+    v = score_job(J(title, desc="python c++ linux"))
+    assert v.keep is False, v.explain()

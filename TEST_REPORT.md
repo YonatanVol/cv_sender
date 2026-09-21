@@ -174,3 +174,27 @@ created in migration 001 and never written in the app's life.
 Stage buttons were deliberately **not** clicked on real data during testing — marking an
 application "replied" when nobody replied would put a fiction in the record. The
 transitions are covered by `tests/test_tracker.py` (9 cases) instead. **289 passed.**
+
+## 2026-09-21 — Sprint 7 and the end-to-end run
+
+**Status page** `/status`: overall state, every component with its detail and the exact
+command that fixes it, queue composition, **per-board health** (50 boards, e.g.
+`ashby:openai ok 818 jobs`) which previously existed only inside a run's event stream,
+and the scheduler's beat, next search and last freshness check.
+
+**Full run through the new pipeline** (`POST /api/run-now`, run #37):
+
+| | Before | After |
+|---|---|---|
+| Queue (distinct) | 245 | 301 |
+| Fresh this week | 77 | 136 |
+| **Ready to send** | 0 ever, on any job site | **7** |
+
+The seven are Greenhouse postings at catonetworks and taboola, each with 5 fields filled
+and **the CV attached** — the first job-site applications ever to reach ready. Blockers in
+that run: 53 questions, 39 borderline-review, 1 form, 1 CAPTCHA.
+
+**A filter gap the run exposed:** catonetworks "Software Team Leader (C)" scored **86**,
+because the senior gate matched `lead` but not `Leader`. Leadership titles (leader, head,
+chief, manager, director, ראש צוות, מנהל) are now gated; **6 leadership roles were found
+in the live queue and removed**. Covered by seven new cases. **299 passed.**
