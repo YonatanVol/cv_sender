@@ -82,3 +82,61 @@ def test_a_working_run_blocks_it(client):
     dry = store.create_run_atomic({}, "dry")
     _ready(store, dry, 1)
     assert c.post("/api/send-ready", json={}).status_code == 409
+
+
+# ---- a form that refuses the submit is not "maybe sent" ----
+
+REJECTING_FORM = """<html><body><form>
+  <label>Email<input name=email type=email required value="y@x.com"></label>
+  <label>Country<select name=country required><option value="">Select a country</option>
+    <option value="IL">Israel</option></select></label>
+  <div class="error">Select a country</div>
+  <button type=submit>Submit application</button>
+</form></body></html>"""
+
+CLEAN_FORM = """<html><body><form>
+  <label>Email<input name=email type=email required value="y@x.com"></label>
+  <button type=submit>Submit application</button></form></body></html>"""
+
+
+@pytest.mark.parametrize("markup,expect_errors", [
+    (REJECTING_FORM, True), (CLEAN_FORM, False)])
+def test_validation_errors_are_read_from_the_form(markup, expect_errors):
+    import asyncio
+    from playwright.async_api import async_playwright
+    from cvsender.channels import atsform
+
+    async def go():
+        async with async_playwright() as pw:
+            b = await pw.chromium.launch(headless=True)
+            page = await b.new_page()
+            await page.set_content(markup)
+            out = await atsform.validation_errors(page)
+            await b.close()
+            return out
+    errors = asyncio.run(go())
+    assert bool(errors) is expect_errors
+    if expect_errors:
+        assert any("country" in e.lower() for e in errors)
+
+
+def test_country_selects_are_answered_from_the_profile():
+    """Greenhouse validates its own Country select, so an application that
+    looked ready was rejected on submit with 'Select a country'."""
+    import asyncio
+    from playwright.async_api import async_playwright
+    from cvsender.channels import atsform
+
+    async def go():
+        async with async_playwright() as pw:
+            b = await pw.chromium.launch(headless=True)
+            page = await b.new_page()
+            await page.set_content(REJECTING_FORM)
+            filled = []
+            n = await atsform.fill_known_selects(page, {"location": "Tel Aviv, Israel"}, filled)
+            value = await page.eval_on_selector("select[name=country]", "el => el.value")
+            await b.close()
+            return n, value, filled
+    n, value, filled = asyncio.run(go())
+    assert n == 1 and value == "IL"
+    assert filled and "Country" in filled[0].label
