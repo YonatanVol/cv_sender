@@ -84,14 +84,47 @@ async def attach_cv(root, cv_path: str) -> bool:
     return False
 
 
+# A reCAPTCHA iframe is NOT a challenge. Every Greenhouse page carries the
+# invisible reCAPTCHA v3 "badge" (a 256x60 anchor iframe inside .grecaptcha-badge)
+# that no human ever touches. Treating it as a blocker parked 137 fully-filled
+# applications — CV attached, no open questions — behind a badge.
+#
+# Blocking means a human must interact: a checkbox widget, an hCaptcha or
+# Turnstile widget, or an open challenge frame.
+_CAPTCHA_JS = r"""() => {
+  const box = el => { const r = el.getBoundingClientRect();
+                      return {w: r.width, h: r.height, vis: r.width > 20 && r.height > 20}; };
+  // 1. an open challenge popup (only exists once a human is being asked)
+  for (const f of document.querySelectorAll("iframe[src*='/bframe'], iframe[src*='hcaptcha.com/captcha']")) {
+    if (box(f).vis) return "challenge";
+  }
+  // 2. an interactive widget that is not the invisible badge
+  for (const w of document.querySelectorAll(".g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey]")) {
+    if (w.closest(".grecaptcha-badge")) continue;
+    if ((w.getAttribute("data-size") || "").toLowerCase() === "invisible") continue;
+    if (box(w).vis) return "widget";
+  }
+  // 3. a visible captcha iframe outside the badge (checkbox widgets render one)
+  for (const f of document.querySelectorAll("iframe[src*='recaptcha'], iframe[src*='hcaptcha'], iframe[src*='turnstile']")) {
+    if (f.closest(".grecaptcha-badge")) continue;
+    const b = box(f);
+    if (b.vis && b.h > 70) return "iframe";          // badge is 60px tall
+  }
+  return "";
+}"""
+
+
+async def captcha_kind(root) -> str:
+    """'' when nothing blocks a human, else which kind of challenge was found."""
+    try:
+        return await root.evaluate(_CAPTCHA_JS) or ""
+    except Exception:
+        return ""
+
+
 async def has_captcha(root) -> bool:
-    for sel in ("iframe[src*='recaptcha']", "iframe[src*='hcaptcha']", ".g-recaptcha"):
-        try:
-            if await root.query_selector(sel):
-                return True
-        except Exception:
-            continue
-    return False
+    """True only for a challenge a human must actually solve."""
+    return bool(await captcha_kind(root))
 
 
 async def has_prohibited(root) -> bool:
