@@ -140,3 +140,31 @@ def test_country_selects_are_answered_from_the_profile():
     n, value, filled = asyncio.run(go())
     assert n == 1 and value == "IL"
     assert filled and "Country" in filled[0].label
+
+
+VERIFICATION_PAGE = """<html><body><form><input name=email value="y@x.com">
+  <p>A verification code was sent to y@x.com. To submit your application, enter
+     the 8-character code to confirm you're a human.</p>
+  <label>Security code<input name=verification_code></label>
+  <button type=submit>Submit application</button></form></body></html>"""
+
+
+@pytest.mark.parametrize("markup,expected", [
+    (VERIFICATION_PAGE, True), (CLEAN_FORM, False), (REJECTING_FORM, False)])
+def test_an_emailed_code_is_recognised_as_a_human_check(markup, expected):
+    """Greenhouse now emails an 8-character code before it will accept an
+    application. This project does not automate human checks — it says so and
+    hands the filled form over."""
+    import asyncio
+    from playwright.async_api import async_playwright
+    from cvsender.channels import atsform
+
+    async def go():
+        async with async_playwright() as pw:
+            b = await pw.chromium.launch(headless=True)
+            page = await b.new_page()
+            await page.set_content(markup)
+            out = await atsform.needs_human_verification(page)
+            await b.close()
+            return out
+    assert asyncio.run(go()) is expected

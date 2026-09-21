@@ -167,6 +167,20 @@ _OPTIONS_JS = """el => el.tagName === 'SELECT'
 
 _COUNTRY_WORDS = ("country", "מדינה")
 
+# react-select keeps the chosen value in the widget, not in the input, so ask
+# the control what it is showing.
+_COMBO_VALUE_JS = r"""el => {
+  // Only a rendered chosen value counts. Reading nearby text instead once made
+  // the label "Country" look like an answer, so the box was skipped as done.
+  let box = el.parentElement;
+  for (let i = 0; i < 5 && box; i++) {
+    const shown = box.querySelector("[class*='singleValue'], [class*='single-value'], [class*='multiValue']");
+    if (shown) return (shown.innerText || "").trim();
+    box = box.parentElement;
+  }
+  return "";
+}"""
+
 
 async def fill_known_selects(root, profile: dict, filled: list) -> int:
     """Answer the dropdowns a person would not think of as questions.
@@ -204,6 +218,79 @@ async def fill_known_selects(root, profile: dict, filled: list) -> int:
                     break
                 except Exception:
                     continue
+        except Exception:
+            continue
+    return n
+
+
+async def _pause(root, ms: int) -> None:
+    """Wait, whether root is a Page or a Frame."""
+    try:
+        await root.wait_for_timeout(ms)
+    except Exception:
+        import asyncio
+        await asyncio.sleep(ms / 1000)
+
+
+async def fill_comboboxes(root, profile: dict, filled: list) -> int:
+    """Answer the type-ahead boxes a form validates itself.
+
+    Greenhouse's Country field is a react-select `input[role=combobox]`: not a
+    select, not marked required in the DOM, and rejected on submit with
+    "Select a country". Two real applications were refused by exactly this.
+
+    The box only names its listbox (`aria-controls`) once it is open, and the
+    chosen value lives in the widget rather than in the input, so success is
+    judged by what the control shows.
+    """
+    from ..engine import answerbank as ab
+    n = 0
+    try:
+        boxes = await root.query_selector_all("input[role='combobox']")
+    except Exception:
+        return 0
+    country = (profile.get("country") or
+               ("Israel" if "israel" in (profile.get("location") or "").lower() else ""))
+    for el in boxes:
+        try:
+            if not await el.is_visible():
+                continue
+            ident = " ".join(filter(None, [
+                await el.get_attribute("id") or "",
+                await el.get_attribute("name") or "",
+                await el.get_attribute("aria-label") or "",
+                (await el.evaluate(_LABEL_JS) or "")])).lower()
+            if "iti-" in ident:
+                continue                      # the phone widget's own picker
+            if await el.evaluate(_COMBO_VALUE_JS):
+                continue                      # already answered
+            answer = country if any(w in ident for w in _COUNTRY_WORDS) else \
+                ab.known_answer(ident, profile)
+            if not answer:
+                continue
+            await el.click()
+            listbox = await el.get_attribute("aria-controls")
+            await el.type(answer[:6], delay=40)
+            await _pause(root, 900)
+            option = None
+            for sel in ([f"#{listbox} [role='option']"] if listbox else []) + \
+                       ["[role='option']"]:
+                try:
+                    option = await root.query_selector(sel)
+                except Exception:
+                    option = None
+                if option and await option.is_visible():
+                    break
+                option = None
+            if not option:
+                continue                      # nothing matched: leave it alone
+            await option.click()
+            await _pause(root, 500)
+            # The click on the matching option is the answer. Whether the form
+            # accepts it is settled at submit by validation_errors(), not by
+            # guessing at how this widget renders its value.
+            filled.append(FieldFill(ident[:60] or "combobox", answer))
+            n += 1
         except Exception:
             continue
     return n
@@ -288,6 +375,7 @@ async def prepare_generic(ctx, job: Job, profile: dict, cv_path: str, cancel,
         answers: dict = {}
         await fill_all_text(root, values, filled, answers)
         await fill_known_selects(root, profile, filled)
+        await fill_comboboxes(root, profile, filled)
         cv_attached = await attach_cv(root, cv_path)
 
         if await has_captcha(root):
@@ -326,10 +414,13 @@ async def send_generic(ctx, handle: SendHandle, cancel, resolve_root,
         root = await resolve_root(page)
         if root is None:
             return SendResult(state=SEND_FAILED, reason="form not found at send time")
-        values = dict(handle.answers)
+        from ..db import store as _store
+        # Same reason as Greenhouse: the handle holds answers, not the profile.
+        values = {**(_store.get_profile() or {}), **dict(handle.answers)}
         filled: list = []
         await fill_all_text(root, values, filled, {})
         await fill_known_selects(root, values, filled)
+        await fill_comboboxes(root, values, filled)
         if not await attach_cv(root, handle.cv_path):
             return SendResult(state=SEND_FAILED, reason="resume re-attach failed")
 
@@ -351,6 +442,10 @@ async def send_generic(ctx, handle: SendHandle, cancel, resolve_root,
         # validates itself (Country, a consent box). That is NOT "maybe sent":
         # nothing left the browser, and calling it unverified would park a
         # perfectly fixable application in limbo.
+        if await needs_human_verification(root):
+            return SendResult(state=SEND_NEEDS_INPUT, screenshot=s,
+                              reason="the site emailed you a verification code — "
+                                     "paste it to finish (a human check, by design)")
         rejected = await validation_errors(root)
         if rejected:
             return SendResult(state=SEND_NEEDS_INPUT, screenshot=s,
@@ -382,6 +477,24 @@ _ERRORS_JS = r"""() => {
   }
   return [...new Set(out)].slice(0, 6);
 }"""
+
+
+_VERIFY_JS = r"""() => {
+  const t = (document.body.innerText || "").toLowerCase();
+  if (/verification code was sent|enter the \d+-character code|confirm you'?re a human|קוד אימות/.test(t))
+    return true;
+  return !!document.querySelector("input[name*='verification' i], input[id*='verification' i], input[name*='security_code' i]");
+}"""
+
+
+async def needs_human_verification(root) -> bool:
+    """Greenhouse emails an 8-character code and asks for it before it will
+    accept an application. That is a human check, and this project does not
+    automate human checks — it hands the filled form to Yonatan instead."""
+    try:
+        return bool(await root.evaluate(_VERIFY_JS))
+    except Exception:
+        return False
 
 
 async def validation_errors(root) -> list[str]:

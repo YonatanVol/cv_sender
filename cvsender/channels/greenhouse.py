@@ -18,6 +18,7 @@ from ..config import SCREENSHOT_DIR, STEP_TIMEOUT_S, USER_AGENT
 from ..engine import answerbank as ab
 from . import atsform
 from .base import (READY, NEEDS_INPUT, FAILED, SENT, SENT_UNVERIFIED,
+                   SEND_NEEDS_INPUT,
                    SEND_FAILED, ConfirmationEvidence, FieldFill, Job,
                    PrepareResult, Question, SendHandle, SendResult)
 
@@ -132,6 +133,11 @@ class GreenhouseChannel:
             # Other recognized text inputs (linkedin/github/website/location).
             await _fill_labeled_text(root, values, filled, answers, page)
 
+            # The widgets a person does not read as questions, and Greenhouse
+            # validates itself: a Country type-ahead refused two real sends.
+            await atsform.fill_known_selects(root, profile, filled)
+            await atsform.fill_comboboxes(root, values, filled)
+
             cv_attached = await _attach_cv(root, cv_path)
 
             if await _has_captcha(root):
@@ -183,6 +189,13 @@ class GreenhouseChannel:
                             await el.fill(handle.answers[key])
                         except Exception:
                             pass
+            # The handle carries the answers, not the profile, so a country
+            # could not be derived at send time — which is exactly what the
+            # form then refused.
+            from ..db import store as _store
+            who = {**(_store.get_profile() or {}), **dict(handle.answers)}
+            await atsform.fill_known_selects(root, who, [])
+            await atsform.fill_comboboxes(root, who, [])
             if not await _attach_cv(root, handle.cv_path):
                 return SendResult(state=SEND_FAILED, reason="resume re-attach failed")
 
@@ -196,6 +209,17 @@ class GreenhouseChannel:
             shot = await _shot(page, None, suffix="after")
             if evidence:
                 return SendResult(state=SENT, evidence=evidence, screenshot=shot)
+            if await atsform.needs_human_verification(root):
+                return SendResult(
+                    state=SEND_NEEDS_INPUT, screenshot=shot,
+                    reason="Greenhouse emailed you an 8-character code — open it "
+                           "and paste the code to finish (a human check, by design)")
+            rejected = await atsform.validation_errors(root)
+            if rejected:
+                # The form refused it outright — nothing left the browser, so
+                # this is fixable work, not a possible send.
+                return SendResult(state=SEND_NEEDS_INPUT, screenshot=shot,
+                                  reason="the form refused it: " + "; ".join(rejected[:3]))
             return SendResult(state=SENT_UNVERIFIED, screenshot=shot,
                               reason="submitted but no positive confirmation captured")
         except Exception as e:
