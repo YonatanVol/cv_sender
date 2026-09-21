@@ -11,7 +11,7 @@ import time
 from ..config import SCREENSHOT_DIR, STEP_TIMEOUT_S
 from ..engine import answerbank as ab
 from .base import (READY, NEEDS_INPUT, FAILED, SENT, SENT_UNVERIFIED,
-                   SEND_FAILED, ConfirmationEvidence, FieldFill, Job,
+                   SEND_FAILED, SEND_NEEDS_INPUT, ConfirmationEvidence, FieldFill, Job,
                    PrepareResult, Question, SendHandle, SendResult)
 
 
@@ -165,6 +165,50 @@ _OPTIONS_JS = """el => el.tagName === 'SELECT'
   : []"""
 
 
+_COUNTRY_WORDS = ("country", "מדינה")
+
+
+async def fill_known_selects(root, profile: dict, filled: list) -> int:
+    """Answer the dropdowns a person would not think of as questions.
+
+    Greenhouse validates its own Country select, so an application that looked
+    ready was rejected on submit with "Select a country".
+    """
+    from ..engine import answerbank as ab
+    n = 0
+    try:
+        selects = await root.query_selector_all("select")
+    except Exception:
+        return 0
+    country = (profile.get("country") or
+               ("Israel" if "israel" in (profile.get("location") or "").lower() else ""))
+    for el in selects:
+        try:
+            if not await el.is_visible() or (await el.input_value()):
+                continue
+            label = (await el.evaluate(_LABEL_JS) or "").strip()
+            if not label or ab.is_prohibited(label):
+                continue
+            answer = None
+            if any(w in label.lower() for w in _COUNTRY_WORDS) and country:
+                answer = country
+            else:
+                answer = ab.known_answer(label, profile)
+            if not answer:
+                continue
+            for how in ("label", "value"):
+                try:
+                    await el.select_option(**{how: answer})
+                    filled.append(FieldFill(label[:60], answer))
+                    n += 1
+                    break
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    return n
+
+
 async def required_unfilled(root) -> list[Question]:
     """Questions a human must answer, with the wording they would recognise."""
     out: list[Question] = []
@@ -243,6 +287,7 @@ async def prepare_generic(ctx, job: Job, profile: dict, cv_path: str, cancel,
         filled: list[FieldFill] = []
         answers: dict = {}
         await fill_all_text(root, values, filled, answers)
+        await fill_known_selects(root, profile, filled)
         cv_attached = await attach_cv(root, cv_path)
 
         if await has_captcha(root):
@@ -284,6 +329,7 @@ async def send_generic(ctx, handle: SendHandle, cancel, resolve_root,
         values = dict(handle.answers)
         filled: list = []
         await fill_all_text(root, values, filled, {})
+        await fill_known_selects(root, values, filled)
         if not await attach_cv(root, handle.cv_path):
             return SendResult(state=SEND_FAILED, reason="resume re-attach failed")
 
@@ -301,12 +347,49 @@ async def send_generic(ctx, handle: SendHandle, cancel, resolve_root,
         s = await shot(page, "after", root)
         if ev:
             return SendResult(state=SENT, evidence=ev, screenshot=s)
+        # The form may have refused the submit outright — a required field it
+        # validates itself (Country, a consent box). That is NOT "maybe sent":
+        # nothing left the browser, and calling it unverified would park a
+        # perfectly fixable application in limbo.
+        rejected = await validation_errors(root)
+        if rejected:
+            return SendResult(state=SEND_NEEDS_INPUT, screenshot=s,
+                              reason="the form refused it: " + "; ".join(rejected[:3]))
         return SendResult(state=SENT_UNVERIFIED, screenshot=s,
                           reason="submitted but no positive confirmation captured")
     except Exception as e:
         return SendResult(state=SEND_FAILED, reason=f"{type(e).__name__}: {e}"[:160])
     finally:
         await page.close()
+
+
+_ERRORS_JS = r"""() => {
+  const out = [];
+  const label = el => {
+    const f = el.closest("label, .field, fieldset, div");
+    const l = f && f.querySelector("label, legend");
+    return ((l && l.innerText) || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  };
+  for (const el of document.querySelectorAll("[aria-invalid='true'], .error, [class*='error']")) {
+    const t = (el.innerText || "").replace(/\s+/g, " ").trim();
+    if (t && t.length < 120 && !/^\s*$/.test(t)) out.push(t);
+  }
+  for (const el of document.querySelectorAll("input, select, textarea")) {
+    if (el.willValidate && !el.checkValidity()) {
+      const name = label(el) || el.name || el.id;
+      if (name) out.push(`${name}: ${el.validationMessage || "required"}`);
+    }
+  }
+  return [...new Set(out)].slice(0, 6);
+}"""
+
+
+async def validation_errors(root) -> list[str]:
+    """What the form itself is complaining about, in its own words."""
+    try:
+        return await root.evaluate(_ERRORS_JS) or []
+    except Exception:
+        return []
 
 
 async def _submit_and_verify(page, root, submit, cancel, net_host, confirm_url,

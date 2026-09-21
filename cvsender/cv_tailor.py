@@ -97,3 +97,31 @@ def sha256(path: str) -> str:
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()
     except OSError:
         return ""
+
+
+def install_variant(name: str, label: str, source: str, tags=None,
+                    is_default: bool = False) -> dict:
+    """Put a built CV variant where the app can send it.
+
+    Each variant lives in its own folder under the same, human file name,
+    because that name is what an employer sees: a Greenhouse form once showed
+    "cv_data.pdf" instead of Yonatan's CV.
+    """
+    import shutil
+    from . import config
+    profile = store.get_profile() or {}
+    proper = Path(profile.get("cv_path") or "Yonatan_Volsky_CV.pdf").name
+    folder = config.CV_DIR / "variants" / name
+    folder.mkdir(parents=True, exist_ok=True)
+    dest = folder / proper
+    if Path(source).resolve() != dest.resolve():
+        shutil.copy2(source, dest)
+    pages = None
+    try:
+        from pypdf import PdfReader
+        pages = len(PdfReader(str(dest)).pages)
+    except Exception:
+        pass
+    store.upsert_cv_variant(name, label, str(dest), sha256(str(dest)),
+                            list(tags or [name]), pages, is_default)
+    return {"name": name, "path": str(dest), "pages": pages}

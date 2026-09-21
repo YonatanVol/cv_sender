@@ -151,3 +151,22 @@ def test_a_verified_send_records_the_application_and_its_cv(env):
         row = dict(c.execute("SELECT cv_variant, cv_sha256 FROM applications").fetchone())
     assert row["cv_variant"] == "backend" and row["cv_sha256"] == "a" * 64
     assert store.sent_today() == 1
+
+
+def test_every_variant_is_sent_under_the_same_human_name(env, tmp_path, monkeypatch):
+    """An employer sees the file name. 'cv_data.pdf' turned up on a real
+    Greenhouse form; it must read as his CV, whichever variant it is."""
+    from pathlib import Path
+    import cvsender.config as cfg
+    cv_tailor, store, _ = env
+    monkeypatch.setattr(cfg, "CV_DIR", tmp_path / "cv")
+    store.save_profile({"cv_path": str(tmp_path / "Yonatan_Volsky_CV.pdf")})
+    for name in ("backend", "qa", "data"):
+        src = tmp_path / f"built_{name}.pdf"
+        src.write_bytes(b"%PDF-1.7 " + name.encode())
+        out = cv_tailor.install_variant(name, name.title(), str(src))
+        assert Path(out["path"]).name == "Yonatan_Volsky_CV.pdf"
+        assert Path(out["path"]).parent.name == name
+    names = {Path(v["path"]).name for v in store.list_cv_variants()
+             if v["name"] in ("backend", "qa", "data")}
+    assert names == {"Yonatan_Volsky_CV.pdf"}

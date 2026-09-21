@@ -210,3 +210,22 @@ Covered by `test_the_question_count_is_the_real_total_not_a_page_size`. **300 pa
 
 Final state: doctor OK on all 8 rows · 297 positions queued · 4 ready to send ·
 91 questions blocking 287 postings · 33 applications, 5 follow-ups due · tree clean.
+
+## 2026-09-21 (evening) — the first job-site send attempt, and what it taught
+
+`POST /api/send-ready` moved the four prepared Greenhouse applications into a live run and
+submitted them. Result: **0 sent, 4 "unverified"** — and the after-screenshot showed the
+truth: the form was **still open with "Country — Select a country"**. Nothing was
+submitted. Two bugs, both now fixed:
+
+1. **"Unverified" was the wrong word.** A form that refuses the submit is not "possibly
+   sent"; nothing left the browser. `validation_errors()` reads the form's own complaints
+   and the item goes back to the queue as *the form refused it: Country: required* —
+   fixable in seconds instead of parked in limbo.
+2. **A required dropdown nobody treats as a question.** Greenhouse validates its own
+   Country select. `fill_known_selects()` answers it from the profile during prepare and
+   again at send.
+
+The same screenshot showed a third problem: the CV was attached as **`cv_data.pdf`**.
+That is what the employer sees. Every variant now lives in its own folder under
+`Yonatan_Volsky_CV.pdf`, guaranteed by `cv_tailor.install_variant()`. **309 passed.**
