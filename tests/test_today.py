@@ -149,3 +149,19 @@ def test_a_legacy_row_is_never_labelled_ready(env):
                 reason="CAPTCHA present")
     card = today.card(store.get_item(iid))
     assert card["block"] == "captcha" and card["state"] == "needs_input"
+
+
+def test_the_question_count_is_the_real_total_not_a_page_size(env):
+    """It reported its own limit as the total: the screen said 50 while the
+    system said 91. A screen that rounds its own numbers cannot be trusted."""
+    import json
+    store, today, _ = env
+    run = store.create_run_atomic({}, "dry")
+    for i in range(60):
+        iid = _item(store, run, n=i, state="needs_input", block_kind="question")
+        store.transition_item(iid, ["needs_input"], "needs_input", result_json=json.dumps(
+            {"questions": [{"label": f"Question number {i} about your experience?",
+                            "kind": "text", "options": []}]}))
+    s = today.snapshot()
+    assert s["questions_total"] == 60
+    assert s["questions_blocking"] == 60
