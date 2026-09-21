@@ -98,3 +98,42 @@ def test_greenhouse_uses_the_same_definition(markup, blocks):
             await browser.close()
             return out
     assert asyncio.run(go()) is blocks
+
+
+# ---- the form must be where we say it is ----
+
+FORM_WITH_LABELS = """<html><body><form>
+  <label for="q1">How many years of experience do you have with Go?</label>
+  <input id="q1" required>
+  <div class="field"><label>Are you available full-time?</label>
+    <select required><option></option><option>Yes</option><option>No</option></select></div>
+  <input id="q3" aria-label="What is your GPA?" required>
+  <input type="file" required>
+  <input type="hidden" required value="">
+  <input id="done" required value="already filled">
+</form></body></html>"""
+
+
+def test_question_labels_are_what_a_human_reads():
+    """They used to come out as 'question_67972490 are you legally authorized…'
+    and 'country country*', which is useless on the answers page."""
+    import asyncio
+    from cvsender.channels import atsform
+
+    async def go():
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.set_content(FORM_WITH_LABELS)
+            out = await atsform.required_unfilled(page)
+            await browser.close()
+            return out
+    questions = asyncio.run(go())
+    labels = [q.label for q in questions]
+    assert "How many years of experience do you have with Go?" in labels
+    assert "Are you available full-time?" in labels
+    assert "What is your GPA?" in labels
+    assert not any("already filled" in l for l in labels)     # answered already
+    assert len(questions) == 3                                 # file/hidden skipped
+    choice = next(q for q in questions if q.label.startswith("Are you"))
+    assert choice.kind == "select" and choice.options == ["Yes", "No"]

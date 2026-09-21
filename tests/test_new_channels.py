@@ -74,3 +74,22 @@ def test_both_channels_are_registered():
     assert {"workable", "smartrecruiters"} <= set(BUILDERS)
     built = build_adapters({"channels": ["workable", "smartrecruiters"]})
     assert set(built) == {"workable", "smartrecruiters"}
+
+
+# ---- the Greenhouse form is not always where the board link points ----
+
+@pytest.mark.parametrize("token,job_id,absolute,expected", [
+    # off-domain company page: use the embed form, which always serves the form
+    ("coinbase", 8175462, "https://www.coinbase.com/careers/positions/8175462",
+     "https://boards.greenhouse.io/embed/job_app?for=coinbase&token=8175462"),
+    ("catonetworks", 123, "https://www.catonetworks.com/careers/x",
+     "https://boards.greenhouse.io/embed/job_app?for=catonetworks&token=123"),
+    # already hosted by Greenhouse: leave it alone
+    ("melio", 99, "https://job-boards.greenhouse.io/melio/jobs/99",
+     "https://job-boards.greenhouse.io/melio/jobs/99"),
+    ("bringg", 5, "https://boards.greenhouse.io/bringg/jobs/5",
+     "https://boards.greenhouse.io/bringg/jobs/5"),
+])
+def test_greenhouse_apply_url_points_at_a_real_form(token, job_id, absolute, expected):
+    from cvsender.channels.greenhouse import hosted_form
+    assert hosted_form(token, job_id, absolute) == expected
