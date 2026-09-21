@@ -6,78 +6,83 @@
 <title>System — CV Sender</title>
 <link rel="manifest" href="/static/manifest.webmanifest">
 <link rel="stylesheet" href="/static/shared.css">
-<meta name="theme-color" content="#0f1115">
+<meta name="theme-color" content="#0b0d12">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <style>
-  .big{display:flex;align-items:center;gap:12px;font-size:19px;font-weight:700}
-  .check{display:flex;gap:11px;padding:11px 0;border-top:1px solid var(--line);align-items:flex-start}
-  .check:first-of-type{border-top:0}
-  .mark{flex:0 0 20px;font-weight:800;font-size:15px;text-align:center}
-  .mark.ok{color:var(--ok)} .mark.warn{color:var(--warn)} .mark.fail{color:var(--bad)}
-  .check .name{font-weight:600}
-  .check .detail{color:var(--mut);font-size:13px;margin-top:2px}
-  .fix{margin-top:5px;font-size:12px;background:var(--well);border:1px solid var(--line);
-       border-radius:8px;padding:7px 9px;color:var(--acc);word-break:break-all;
-       font-family:ui-monospace,Menlo,monospace}
-  .src{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;
-       border-top:1px solid var(--line)}
-  .src:first-of-type{border-top:0}
-  .src .n{color:var(--mut);font-variant-numeric:tabular-nums}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
-  .tile{background:var(--well);border:1px solid var(--line);border-radius:11px;padding:10px;text-align:center}
-  .tile b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
-  .tile span{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
-  .row{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
+  .big { display: flex; align-items: center; gap: 13px; }
+  .big .dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; background: var(--dim); }
+  .big .dot.ok { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-soft); }
+  .big .dot.warn { background: var(--warn); box-shadow: 0 0 0 4px var(--warn-soft); }
+  .big .dot.fail { background: var(--bad); box-shadow: 0 0 0 4px var(--bad-soft); }
+  .big h1 { font-size: 18px; font-weight: 700; }
+  .check { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line-soft); }
+  .check:first-child { border-top: 0; padding-top: 2px; }
+  .check .mark { flex: 0 0 18px; font-weight: 800; font-size: 14px; text-align: center; line-height: 1.5; }
+  .mark.ok { color: var(--ok); } .mark.warn { color: var(--warn); } .mark.fail { color: var(--bad); }
+  .check .name { font-weight: 600; }
+  .check .detail { color: var(--mut); font-size: 12.5px; margin-top: 3px; }
+  .fix {
+    margin-top: 7px; font-size: 12px; background: var(--well); color: var(--acc);
+    border: 1px solid var(--line-soft); border-radius: 8px; padding: 8px 10px;
+    font-family: ui-monospace, Menlo, monospace; word-break: break-all;
+  }
 </style>
 </head>
 <body>
 <header id="hdr"></header>
 <main>
-  <div class="card">
-    <div class="big"><span id="stateDot">•</span><span id="stateText">Checking…</span></div>
-    <div class="sub" id="stateSub"></div>
-    <div class="row">
-      <button class="ghost" id="recheck">↻ Re-check</button>
-      <button class="ghost" id="runNow">▶︎ Search now</button>
+  <section class="card">
+    <div class="big"><span class="dot" id="dot"></span>
+      <div><h1 id="stateText">Checking…</h1>
+        <div class="sub" id="stateSub">&nbsp;</div></div></div>
+    <div class="row" style="margin-top:16px">
+      <button id="runNow">Search now</button>
+      <button class="ghost" id="recheck">Re-check</button>
       <a class="btn ghost" href="/today">Today</a>
     </div>
-  </div>
+  </section>
 
-  <div class="card">
-    <h2>Components</h2>
-    <div id="checks" class="sub">Loading…</div>
-  </div>
-
-  <div class="card">
+  <section class="card">
     <h2>The queue</h2>
-    <div class="grid" id="queue"></div>
-  </div>
+    <div class="tiles" id="queue"></div>
+  </section>
 
-  <div class="card">
+  <section class="card">
+    <h2>Components</h2>
+    <div id="checks"><div class="skeleton" style="height:48px"></div></div>
+  </section>
+
+  <section class="card">
     <h2>Job boards</h2>
     <div id="sources" class="sub">Loading…</div>
-  </div>
+  </section>
 
-  <div class="card">
+  <section class="card">
     <h2>Scheduler</h2>
-    <div id="sched" class="sub"></div>
-  </div>
+    <div id="sched"></div>
+  </section>
 </main>
 <div id="toast" class="toast hide"></div>
 <script src="/static/shared.js"></script>
 <script>
 $('hdr').innerHTML = navBar('/status');
-const MARK = {ok: '✓', warn: '!', fail: '✗'};
+const MARK = { ok: '✓', warn: '!', fail: '✗' };
 
 function render(h) {
-  const worst = h.state;
-  $('stateDot').className = 'mark ' + worst;
-  $('stateDot').textContent = MARK[worst];
-  $('stateText').textContent = worst === 'ok' ? 'Everything is working'
-    : worst === 'warn' ? 'Working, with warnings' : 'Something is broken';
+  $('dot').className = 'dot ' + h.state;
+  $('stateText').textContent = h.state === 'ok' ? 'Everything is working'
+    : h.state === 'warn' ? 'Working, with warnings' : 'Something is broken';
   const bad = h.checks.filter(c => c.state !== 'ok');
   $('stateSub').textContent = bad.length
     ? bad.map(c => c.check).join(', ') + ' need attention'
-    : 'All ' + h.checks.length + ' checks passed';
+    : `All ${h.checks.length} checks passed`;
+
+  const q = h.queue || {};
+  $('queue').innerHTML = [
+    ['Waiting', q.total], ['Fresh this week', q.fresh_7d],
+    ['Within a month', q.stale_14d], ['Older', q.old_30d],
+    ['Unverified', q.unverified_old],
+  ].map(([label, n]) => `<div class="tile"><b>${n ?? '–'}</b><span>${label}</span></div>`).join('');
 
   $('checks').innerHTML = h.checks.map(c => `
     <div class="check">
@@ -87,17 +92,10 @@ function render(h) {
         ${c.fix && c.state !== 'ok' ? `<div class="fix">${esc(c.fix)}</div>` : ''}</div>
     </div>`).join('');
 
-  const q = h.queue || {};
-  $('queue').innerHTML = [
-    ['Waiting', q.total], ['Fresh this week', q.fresh_7d],
-    ['Within a month', q.stale_14d], ['Older', q.old_30d],
-    ['Old, unverified', q.unverified_old],
-  ].map(([label, n]) => `<div class="tile"><b>${n ?? '–'}</b><span>${label}</span></div>`).join('');
-
   $('sources').innerHTML = (h.sources && h.sources.length)
-    ? h.sources.map(s => `<div class="src">
+    ? h.sources.map(s => `<div class="stat">
          <span><span class="mark ${s.state}">${MARK[s.state]}</span> ${esc(s.source)}</span>
-         <span class="n">${s.jobs} jobs · ${esc(String(s.status))}</span></div>`).join('')
+         <span class="sub num">${s.jobs} jobs · ${esc(String(s.status))}</span></div>`).join('')
     : 'No board results yet — they are recorded on the next search.';
 
   const s = h.scheduler || {};
@@ -109,7 +107,8 @@ function render(h) {
     ['Last freshness check', s.last_verify || 'none yet'],
     ['Target queue size', s.target_depth],
     ['Boards searched', (s.channels || []).join(', ')],
-  ].map(([k, v]) => `<div class="src"><span>${k}</span><span class="n">${esc(String(v ?? '–'))}</span></div>`).join('');
+  ].map(([k, v]) => `<div class="stat"><span>${k}</span>
+      <span class="sub num">${esc(String(v ?? '–'))}</span></div>`).join('');
 }
 
 async function load() {
@@ -119,9 +118,10 @@ async function load() {
 $('recheck').onclick = load;
 $('runNow').onclick = async () => {
   $('runNow').disabled = true;
-  try { const r = await api('POST', '/api/run-now');
-    toast(r.run_id ? `Search started (run #${r.run_id})` : (r.detail || 'Nothing to search for')); }
-  catch (e) { toast(e.message); }
+  try {
+    const r = await api('POST', '/api/run-now');
+    toast(r.run_id ? `Search started (run #${r.run_id})` : (r.detail || 'Nothing to search for'));
+  } catch (e) { toast(e.message); }
   $('runNow').disabled = false; load();
 };
 load();

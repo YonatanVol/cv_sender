@@ -6,167 +6,177 @@
 <title>Today — CV Sender</title>
 <link rel="manifest" href="/static/manifest.webmanifest">
 <link rel="stylesheet" href="/static/shared.css">
-<meta name="theme-color" content="#0f1115">
+<meta name="theme-color" content="#0b0d12">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <style>
-  .goal{display:flex;align-items:center;gap:16px}
-  .ring{flex:0 0 auto;width:66px;height:66px;border-radius:50%;display:grid;place-items:center;
-        font-weight:800;font-size:19px;background:conic-gradient(var(--acc) var(--pct,0%),var(--well) 0)}
-  .ring span{width:52px;height:52px;border-radius:50%;background:var(--card);display:grid;place-items:center}
-  .goal .t{font-size:15px}
-  .next{border:1px solid var(--acc);background:linear-gradient(180deg,rgba(79,140,255,.10),transparent)}
-  .next .what{font-size:17px;font-weight:700;margin:6px 0 4px}
-  .job{display:flex;gap:12px;padding:11px 0;border-top:1px solid var(--line);align-items:flex-start}
-  .job:first-of-type{border-top:0}
-  .score{flex:0 0 46px;text-align:center;font-weight:800;font-size:18px;line-height:1.1}
-  .score small{display:block;font-size:10px;font-weight:600;color:var(--mut);letter-spacing:.03em}
-  .job .co{font-weight:700}
-  .job .ttl{color:var(--fg)}
-  .job .why{color:var(--mut);font-size:12px;margin-top:3px}
-  .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-  .stat{display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
-  .stat:first-of-type{border-top:0}
-  .stat b{font-variant-numeric:tabular-nums}
-  .qbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-  .qbar button{padding:9px 13px;font-size:13px;font-weight:600;background:var(--well);
-               border:1px solid var(--line);color:var(--fg);border-radius:20px}
-  .answer{background:var(--well);border:1px solid var(--line);border-radius:11px;padding:13px;
-          font-size:14px;line-height:1.55;white-space:pre-wrap}
-  .askrow{display:flex;gap:8px;margin-top:10px}
-  .askrow input{flex:1}
-  a.plain{color:var(--acc);text-decoration:none}
+  .hero { display: flex; align-items: center; gap: 18px; }
+  .ring {
+    flex: 0 0 auto; width: 78px; height: 78px; border-radius: 50%; display: grid; place-items: center;
+    background: conic-gradient(var(--acc) var(--pct, 0%), var(--surface-2) 0);
+    transition: background .6s ease;
+  }
+  .ring .inner {
+    width: 62px; height: 62px; border-radius: 50%; background: var(--surface);
+    display: grid; place-items: center; font-weight: 750; font-size: 17px;
+    letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+  }
+  .hero .headline { font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+  .hero .facts { color: var(--mut); font-size: 13px; margin-top: 5px; line-height: 1.6; }
+  .hero .facts b { color: var(--fg); font-variant-numeric: tabular-nums; font-weight: 650; }
+  .kicker { color: var(--acc); font-size: 11.5px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .08em; }
+  .what { font-size: 17px; font-weight: 700; margin: 8px 0 5px; letter-spacing: -.01em; }
+  .why { color: var(--mut); font-size: 12.5px; margin-top: 4px; line-height: 1.5; }
+  .qbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .answer { background: var(--well); border: 1px solid var(--line-soft); border-radius: var(--r-sm);
+            padding: 14px; font-size: 13.5px; line-height: 1.6; min-height: 58px; }
+  .askrow { display: flex; gap: 8px; margin-top: 10px; }
+  .askrow input { flex: 1; }
+  .askrow button { flex: 0 0 auto; }
 </style>
 </head>
 <body>
 <header id="hdr"></header>
 <main>
-  <div class="card goal" id="goalCard">
-    <div class="ring" id="ring"><span id="ringText">–</span></div>
-    <div class="t"><div id="goalLine">Loading…</div>
-      <div class="sub" id="goalSub"></div></div>
-  </div>
+  <section class="card hero">
+    <div class="ring" id="ring"><div class="inner" id="ringText">··</div></div>
+    <div>
+      <div class="headline skeleton" id="headline">Loading your day</div>
+      <div class="facts" id="facts">&nbsp;</div>
+    </div>
+  </section>
 
-  <div class="card next hide" id="nextCard">
-    <span class="sub">Next best action</span>
+  <section class="card lead hide" id="nextCard">
+    <div class="kicker">Do this next</div>
     <div class="what" id="nextWhat"></div>
     <div class="sub" id="nextWhy"></div>
-    <div class="row" id="nextRow"></div>
-  </div>
+    <div class="row" id="nextRow" style="margin-top:14px"></div>
+  </section>
 
-  <div class="card" id="jobsCard">
+  <section class="card">
     <h2>Best jobs waiting</h2>
-    <div id="jobs" class="sub">Loading…</div>
-    <div class="row"><a class="btn ghost" href="/assist">Open the queue</a></div>
-  </div>
+    <div class="list" id="jobs"><div class="skeleton" style="height:54px"></div></div>
+    <div class="row" style="margin-top:14px"><a class="btn ghost" href="/assist">Open the queue</a></div>
+  </section>
 
-  <div class="card">
-    <h2>Ask</h2>
-    <div class="qbar" id="qbar"></div>
-    <div class="answer" id="answer">Pick a question, or type one below. Every answer comes from your database — nothing is invented.</div>
-    <div class="askrow">
-      <input id="q" placeholder="e.g. show me embedded jobs" autocomplete="off">
-      <button id="askBtn">Ask</button>
-    </div>
-  </div>
-
-  <div class="card hide" id="followCard">
+  <section class="card hide" id="followCard">
     <h2>Follow-ups due</h2>
     <div id="follows"></div>
-    <div class="row"><a class="btn ghost" href="/applications">Open sent applications</a></div>
-  </div>
+    <div class="row" style="margin-top:12px"><a class="btn ghost" href="/applications">Everything you sent</a></div>
+  </section>
 
-  <div class="card">
+  <section class="card">
+    <h2>Ask</h2>
+    <div class="qbar" id="qbar"></div>
+    <div class="answer" id="answer">Pick a question, or type one. Every answer is read from your own
+      data — nothing is invented.</div>
+    <div class="askrow">
+      <input id="q" placeholder="e.g. show me embedded jobs" autocomplete="off" aria-label="Ask a question">
+      <button id="askBtn">Ask</button>
+    </div>
+  </section>
+
+  <section class="card">
     <h2>Needs attention</h2>
-    <div id="attention" class="sub">Loading…</div>
-  </div>
+    <div id="attention"><div class="skeleton" style="height:40px"></div></div>
+  </section>
 
-  <div class="card">
+  <section class="card">
     <h2>System</h2>
-    <div id="system" class="sub">Loading…</div>
-  </div>
+    <div id="system"></div>
+    <div class="row" style="margin-top:12px"><a class="btn ghost" href="/status">Open system status</a></div>
+  </section>
 </main>
 <div id="toast" class="toast hide"></div>
 <script src="/static/shared.js"></script>
 <script>
-let snap = null;
 $('hdr').innerHTML = navBar('/today');
 
+const BLOCK_LABEL = {captcha: 'needs a form check', question: 'waiting on your answer',
+                     review: 'borderline — approve it', error: 'failed',
+                     form: 'finish by hand', '': 'ready to send'};
+
 function jobRow(j) {
-  const blocked = {captcha: 'form check', question: 'needs an answer', review: 'approve it',
-                   error: 'failed', form: 'finish by hand', '': 'ready'}[j.block] || j.block;
-  return `<div class="job">
-    <div class="score">${j.score ?? '–'}<small>${esc((j.band || '').split(' ')[0])}</small></div>
-    <div>
-      <div class="co">${esc(j.company)}</div>
-      <div class="ttl">${esc(j.title)}</div>
+  return `<div class="item">
+    ${scoreBadge(j.score, j.band)}
+    <div class="body">
+      <div class="title">${esc(j.company)} <span class="dim">·</span> ${esc(j.title)}</div>
       <div class="why">${esc(j.why || '')}</div>
-      <div class="why">${esc(blocked)}${j.age_days != null ? ` · seen ${j.age_days}d ago` : ''}${j.cv_attached ? ' · CV attached' : ''}</div>
+      <div class="meta">${esc(BLOCK_LABEL[j.block] ?? j.block)}${
+        j.age_days != null ? ` · seen ${ago(j.age_days)}` : ''}${
+        j.cv_attached ? ' · CV attached' : ''}</div>
     </div></div>`;
 }
 
 function render(s) {
-  snap = s;
-  const g = s.goal, pct = Math.min(100, Math.round(100 * g.done / Math.max(1, g.target)));
-  $('ring').style.setProperty('--pct', pct + '%');
+  const g = s.goal;
+  $('ring').style.setProperty('--pct',
+    Math.min(100, Math.round(100 * g.done / Math.max(1, g.target))) + '%');
   $('ringText').textContent = `${g.done}/${g.target}`;
-  $('goalLine').textContent = g.met
-    ? `Done for today — ${g.done} sent.`
-    : `${g.remaining} more to finish today.`;
-  $('goalSub').textContent =
-    `${s.counts.total} waiting · ${s.questions_total} question${s.questions_total === 1 ? '' : 's'} blocking ${s.questions_blocking} · ${s.linkedin_left} LinkedIn sends left · ${s.applications} sent all time`;
+  $('headline').classList.remove('skeleton');
+  $('headline').textContent = g.met ? `Done for today — ${g.done} sent.`
+    : g.done ? `${g.remaining} more to finish today.` : 'Nothing sent yet today.';
+  $('facts').innerHTML =
+    `<b>${s.counts.total}</b> waiting · <b>${s.questions_total}</b> question${
+      s.questions_total === 1 ? '' : 's'} blocking <b>${s.questions_blocking ?? 0}</b> · <b>${
+      s.linkedin_left}</b> LinkedIn sends left · <b>${s.applications}</b> sent all time`;
 
   const n = s.next;
   if (n) {
     $('nextCard').classList.remove('hide');
     $('nextWhat').textContent =
-      n.kind === 'answer' ? `Answer: ${n.question}`
-      : n.kind === 'followup' ? `Follow up: ${n.application.company} — ${n.application.title}`
-      : `${n.action}: ${n.item.company} — ${n.item.title}`;
+      n.kind === 'answer' ? n.question
+      : n.kind === 'followup' ? `${n.application.company} — ${n.application.title}`
+      : `${n.item.company} — ${n.item.title}`;
     $('nextWhy').textContent = n.why;
     $('nextRow').innerHTML =
-      n.kind === 'answer' ? `<a class="btn" href="/answers">Answer it</a>`
-      : n.kind === 'followup' ? `<a class="btn" href="/applications">Open it</a>`
+      n.kind === 'answer' ? '<a class="btn" href="/answers">Answer it</a>'
+      : n.kind === 'followup' ? '<a class="btn" href="/applications">Open it</a>'
       : `<a class="btn" href="${esc(n.item.url)}" target="_blank" rel="noopener">${esc(n.action)}</a>
          <a class="btn ghost" href="/assist">Open queue</a>`;
-  } else {
-    $('nextCard').classList.add('hide');
-  }
+  } else $('nextCard').classList.add('hide');
 
-  $('jobs').innerHTML = s.best_jobs.length
-    ? s.best_jobs.map(jobRow).join('')
-    : 'Nothing in the queue. Run a search from Settings.';
+  $('jobs').innerHTML = s.best_jobs.length ? s.best_jobs.map(jobRow).join('')
+    : `<div class="empty"><h3>Nothing waiting</h3>
+         <p class="sub">Run a search from System to stage more.</p></div>`;
 
   if (s.followups_due && s.followups_due.length) {
     $('followCard').classList.remove('hide');
     $('follows').innerHTML = s.followups_due.map(f =>
-      `<div class="stat"><span>${esc(f.company)} — ${esc(f.title)}</span><b>${f.days}d</b></div>`).join('');
-  } else { $('followCard').classList.add('hide'); }
+      `<div class="stat"><span>${esc(f.company)} <span class="dim">·</span> ${esc(f.title)}</span>
+       <b>${ago(f.days)}</b></div>`).join('');
+  } else $('followCard').classList.add('hide');
 
   const c = s.counts, names = {ready: 'Ready to send', question: 'Waiting on your answer',
     captcha: 'Need a form check', review: 'Borderline — approve or skip',
     error: 'Failed with an error', form: 'Finish the form by hand'};
-  $('attention').innerHTML = Object.entries(names)
-    .filter(([k]) => c[k]).map(([k, label]) =>
-      `<div class="stat"><span>${label}</span><b>${c[k]}</b></div>`).join('')
+  $('attention').innerHTML = Object.entries(names).filter(([k]) => c[k])
+    .map(([k, label]) => `<div class="stat"><span>${label}</span><b>${c[k]}</b></div>`).join('')
     + `<div class="stat"><span>Fresh this week</span><b>${s.freshness.fresh_7d}</b></div>`
     + `<div class="stat"><span>Older than a month</span><b>${s.freshness.old_30d}</b></div>`;
 
   const h = s.health, sch = s.scheduler;
+  const cls = h.state === 'ok' ? 'good' : h.state === 'warn' ? 'warn' : 'bad';
   $('system').innerHTML =
-    `<div class="stat"><span>Health</span><span class="pill ${h.state === 'ok' ? 'good' : h.state === 'warn' ? 'warn' : 'bad'}">${esc(h.state)}</span></div>`
-    + h.problems.map(p => `<div class="stat"><span>${esc(p.check)}</span><span class="sub">${esc(p.detail)}</span></div>`).join('')
+    `<div class="stat"><span>Health</span><span class="pill ${cls}">${
+      h.state === 'ok' ? 'all good' : esc(h.state)}</span></div>`
+    + h.problems.map(p => `<div class="stat"><span>${esc(p.check)}</span>
+        <span class="sub">${esc(p.detail)}</span></div>`).join('')
     + `<div class="stat"><span>Next search</span><b>${esc(sch.next_staging_at)}</b></div>`
-    + `<div class="stat"><span>Last search</span><span class="sub">${esc(sch.last_staging_result || 'not yet today')}</span></div>`
-    + `<div class="row"><a class="btn ghost" href="/status">Open system status</a></div>`;
+    + `<div class="stat"><span>Last search</span>
+        <span class="sub">${esc(sch.last_staging_result || 'not yet today')}</span></div>`;
 }
 
 async function load() {
   try { render(await api('GET', '/api/today')); }
-  catch (e) { $('goalLine').textContent = 'Could not load: ' + e.message; }
+  catch (e) {
+    $('headline').classList.remove('skeleton');
+    $('headline').textContent = 'Could not load: ' + e.message;
+  }
 }
 
 async function ask(q) {
-  $('answer').textContent = '…';
+  $('answer').innerHTML = '<span class="skeleton">thinking about it</span>';
   try {
     const r = await api('POST', '/api/ask', { q });
     $('answer').innerHTML = esc(r.answer)
@@ -178,9 +188,8 @@ async function ask(q) {
   try {
     const { questions } = await api('GET', '/api/ask/questions');
     $('qbar').innerHTML = questions.map(q =>
-      `<button data-k="${esc(q.key)}">${esc(q.label)}</button>`).join('');
-    document.querySelectorAll('#qbar button').forEach(b =>
-      b.onclick = () => ask(b.dataset.k));
+      `<button class="chip" data-k="${esc(q.key)}">${esc(q.label)}</button>`).join('');
+    document.querySelectorAll('#qbar .chip').forEach(b => b.onclick = () => ask(b.dataset.k));
   } catch {}
 })();
 $('askBtn').onclick = () => ask($('q').value);

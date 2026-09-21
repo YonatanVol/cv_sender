@@ -20,9 +20,26 @@ function toast(message) {
 
 /* Same header everywhere, current page marked. */
 function navBar(current) {
-  const pages = [['/today','Today'],['/assist','Queue'],['/answers','Answers'],
-                 ['/applications','Sent'],['/status','System'],['/settings','Settings']];
-  return `<a class="brand" href="/today">⚡ CV Sender</a>
-    <nav>${pages.filter(([h]) => h !== current)
-      .map(([h, label]) => `<a href="${h}">${label}</a>`).join('')}</nav>`;
+  const pages = [['/today', 'Today'], ['/assist', 'Queue'], ['/answers', 'Answers'],
+                 ['/applications', 'Sent'], ['/status', 'System'], ['/settings', 'Settings']];
+  return `<a class="brand" href="/today"><i>⚡</i> CV Sender</a>
+    <nav>${pages.map(([href, label]) =>
+      `<a href="${href}"${href === current ? ' class="on" aria-current="page"' : ''}>${label}</a>`
+    ).join('')}</nav>`;
+}
+
+/* A score and how good it is, as one object. */
+function scoreBadge(score, band) {
+  const word = (band || '').split(' ')[0] || '';
+  return `<div class="score ${word}"><b>${score ?? '–'}</b><span>${esc(word)}</span></div>`;
+}
+
+/* "3 days ago" reads better than a timestamp nobody converts in their head. */
+function ago(days) {
+  if (days == null) return '';
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) return `${Math.round(days / 7)} weeks ago`;
+  return `${Math.round(days / 30)} months ago`;
 }

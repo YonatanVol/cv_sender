@@ -86,7 +86,10 @@ app.mount("/static", StaticFiles(directory=str(WEB)), name="static")
 # --------------------------- consent / origin ------------------------------
 
 PUBLIC_PATHS = {"/login", "/api/login", "/static/manifest.webmanifest",
-                "/static/icon.svg", "/api/auth/status", "/healthz"}
+                "/static/icon.svg", "/api/auth/status", "/healthz",
+                # the browser asks for this before you are signed in; answering
+                # it with a redirect to /login put a 303 on every page load
+                "/favicon.ico"}
 
 
 def _is_loopback(request: Request) -> bool:
@@ -111,6 +114,11 @@ async def _auth_gate(request: Request, call_next):
     if path.startswith("/api/"):
         return JSONResponse({"detail": "authentication required"}, status_code=401)
     return RedirectResponse("/login", status_code=303)
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse(str(WEB / "icon.svg"), media_type="image/svg+xml")
 
 
 @app.get("/login")
@@ -413,11 +421,14 @@ def assist_queue(limit: int = 200):
     out = []
     for it in items:
         rj = json.loads(it.get("result_json") or "{}")
+        sj = json.loads(it.get("score_json") or "{}")
         out.append({
             "id": it["id"], "run_id": it["run_id"], "channel": it["channel"],
             "company": it["company"], "title": it["title"],
             "apply_url": it["apply_url"], "url": it["url"],
             "state": it["state"], "reason": it["reason"], "score": it["score"],
+            # the card shows how good the fit is, not only the number
+            "band": sj.get("band", ""),
             "screenshot": it["screenshot_prepare"],
             "cv_attached": rj.get("cv_attached", False),
             "filled": [f.get("label") for f in rj.get("filled", [])],

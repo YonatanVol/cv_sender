@@ -3,52 +3,49 @@
 // The bot already filled everything + attached the CV; the human clears the
 // CAPTCHA / answers the question and confirms. No AI, no tokens.
 
-const $ = id => document.getElementById(id);
-let queue = [], idx = 0, total = 0;
+// $, esc, api, toast, navBar and scoreBadge come from shared.js.
+let queue = [], idx = 0, total = 0, sentToday = 0;
 
-function toast(msg) {
-  const t = $('toast'); t.textContent = msg; t.style.display = 'block';
-  clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', 2200);
-}
-async function api(method, url, body) {
-  const o = { method, headers: {} };
-  if (body !== undefined) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(body); }
-  const r = await fetch(url, o);
-  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch {} throw new Error(m); }
-  return r.json();
-}
-const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c =>
-  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+document.getElementById('hdr').innerHTML = navBar('/assist');
 
 async function load() {
   const d = await api('GET', '/api/assist');
   queue = d.items; total = queue.length; idx = 0;
-  $('sentToday').textContent = d.sent_today;
+  sentToday = d.sent_today;
   render();
 }
 
 function render() {
   $('bar').style.width = total ? `${(idx / total) * 100}%` : '0%';
   if (idx >= queue.length) {
-    $('stage').innerHTML = `<div class="done"><h2>🎉 Queue clear</h2>
-      <p>Nothing left to finish. Run a new batch to load more.</p>
-      <div class="actions"><button onclick="load()">Reload queue</button></div></div>`;
+    $('stage').innerHTML = `<div class="card"><div class="empty">
+      <h3>Queue clear</h3>
+      <p class="sub">Nothing left to finish — ${sentToday} sent today.</p>
+      <div class="row" style="justify-content:center;margin-top:16px">
+        <button onclick="load()">Reload queue</button>
+        <a class="btn ghost" href="/today">Back to Today</a></div></div></div>`;
     return;
   }
   const it = queue[idx];
   const qs = (it.questions || []).filter(q => q && q.label);
   $('stage').innerHTML = `
     <div class="card">
-      <div class="co">${esc(it.company)}</div>
-      <div class="role">${esc(it.title)}</div>
-      <span class="why">${esc(it.reason || it.state)}</span>
-      <div class="meta">${it.cv_attached ? '<span class="ok">✓ CV attached</span>' : '⚠ CV not attached'}
+      <div class="headrow">
+        ${scoreBadge(it.score, it.band)}
+        <div><div class="co">${esc(it.company)}</div>
+          <div class="role">${esc(it.title)}</div></div>
+      </div>
+      <span class="pill warn">${esc(it.reason || it.state)}</span>
+      <div class="sub" style="margin-top:9px">
+        ${it.cv_attached ? '<span style="color:var(--ok)">CV attached</span>'
+                         : '<span style="color:var(--warn)">CV not attached</span>'}
         · ${(it.filled || []).length} fields filled · ${esc(it.channel)}
-        · <span class="mut">${idx + 1} of ${total}</span></div>
-      ${it.screenshot ? `<img class="shot" src="/data2/${it.screenshot}" alt="filled form">` : ''}
-      ${qs.length ? `<div class="meta">Answer once — reused automatically next time:</div>` : ''}
+        · <span class="dim">${idx + 1} of ${total}</span>
+        · <span class="dim">${sentToday} sent today</span></div>
+      ${it.screenshot ? `<img class="shot" src="/data2/${it.screenshot}" alt="the filled form">` : ''}
+      ${qs.length ? '<p class="sub" style="margin-top:12px">Answer once — reused automatically next time:</p>' : ''}
       ${qs.map((q, i) => {
-        const opts = (q.options || []).filter(Boolean);
+        const opts = (q.options || []).filter(o => o && !/^select an option$/i.test(o));
         const field = opts.length
           ? `<select id="q${i}" data-label="${esc(q.label)}">
                <option value="">choose…</option>
@@ -58,14 +55,15 @@ function render() {
         return `<div class="q"><label>${esc(q.label)}</label>${field}</div>`;
       }).join('')}
       <div class="actions">
-        <button onclick="takeover()" title="Re-opens the form already filled with your details + CV">🖥 Fill it for me</button>
-        <a class="btn open" href="${esc(it.apply_url || it.url)}" target="_blank" rel="noopener"
+        <a class="btn" href="${esc(it.apply_url || it.url)}" target="_blank" rel="noopener"
            onclick="opened()">Open &amp; apply ↗</a>
-        <button class="sent" onclick="markSent()">✓ I sent it</button>
-        ${qs.length ? `<button onclick="saveAnswers()">Save answers</button>` : ''}
-        <button class="gone" onclick="markGone()"
-                title="Posting is closed — never offer it again">🚫 Not available</button>
-        <button class="skip" onclick="next()" title="Come back to this later">Skip</button>
+        <button class="sent" onclick="markSent()">I sent it</button>
+        ${qs.length ? '<button class="ghost" onclick="saveAnswers()">Save answers</button>' : ''}
+        <button class="ghost" onclick="takeover()"
+                title="Re-opens the form already filled with your details and CV">Fill it for me</button>
+        <button class="ghost gone" onclick="markGone()"
+                title="Posting is closed — never offer it again">Not available</button>
+        <button class="quiet" onclick="next()" title="Come back to this later">Skip</button>
       </div>
     </div>`;
 }
@@ -88,8 +86,8 @@ async function markSent() {
   const it = queue[idx];
   try {
     const r = await api('POST', `/api/items/${it.id}/mark-sent`);
-    $('sentToday').textContent = r.sent_today ?? $('sentToday').textContent;
-    toast('Recorded ✓');
+    if (r.sent_today != null) sentToday = r.sent_today;
+    toast('Recorded');
     next();
   } catch (e) { toast('Failed: ' + e.message); }
 }
