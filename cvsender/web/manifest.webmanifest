@@ -2,7 +2,7 @@
   "name": "CV Sender",
   "short_name": "CV Sender",
   "description": "Find junior software roles and send your CV.",
-  "start_url": "/assist",
+  "start_url": "/today",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0f1115",
