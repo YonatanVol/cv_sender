@@ -229,3 +229,82 @@ submitted. Two bugs, both now fixed:
 The same screenshot showed a third problem: the CV was attached as **`cv_data.pdf`**.
 That is what the employer sees. Every variant now lives in its own folder under
 `Yonatan_Volsky_CV.pdf`, guaranteed by `cv_tailor.install_variant()`. **309 passed.**
+
+## 2026-09-22 — Ten applications, and the three bugs that stood in the way
+
+| What | Command / source | Result |
+|---|---|---|
+| Test suite | `./.venv/bin/python -m pytest tests/ -q` | **320 passed** |
+| System health | `cvsender.health.report()` | `ok`, no failing check |
+| Applications sent today | `applications` table, local date | **10**, each with DOM confirmation evidence |
+| Applications all time | `applications` table | 43 |
+| Queue | `store.assist_queue(1000)` | 305 distinct · 3 ready · 3 failed |
+| Queue age | `store.queue_age_report()` | ≤7d: 187 · 8–14d: 64 · >30d: 54 · unverified: **0** |
+| Screening questions | `store.answer_gaps(500)` | 149 questions blocking 390 postings; 20 answers saved |
+
+### The apply form LinkedIn actually renders
+
+Probed live against `linkedin.com/jobs/view/4462800313` with the project's own
+persistent context:
+
+```
+step 0  _CONTROLS matched=0   role=dialog present=False
+```
+
+The SDUI modal has neither `role="dialog"` nor `.jobs-easy-apply-content`. Every
+screening question therefore came back as `required field flagged` with no
+question attached — 66 postings parked behind a message that says nothing. With
+the form-element ids and their `.fb-dash-form-element` wrappers added:
+
+```
+step 0: candidate matched 4
+  [select] req=True label='Email address'
+  [select] req=True label='Phone country code'
+  [text]   req=True label='Mobile phone number'
+step 2: [select] req=True label='Are you currently a student?'  options=['Yes','No']
+```
+
+Re-running the parked postings produced real questions instead: *Are you
+currently a student?*, *Do you hold a bachelor's degree?*, *What is your level of
+proficiency in English?*
+
+### A yes/no question is not called "Yes"
+
+`linkedin.com/jobs/view/4464764797`, before and after, same page:
+
+```
+before   [radio] label='Yes'   options=['Yes','No']
+after    [radio] label='Are you comfortable working in an onsite setting?'  options=['Yes','No']
+```
+
+The question lives in the `<fieldset><legend>`; a radio's own `<label>` is its
+choice. Where LinkedIn uses GUID choice ids, the options were GUIDs too.
+
+### A busy run must not sign you out
+
+```
+POST /api/runs/45/items/448/confirm  ->  500
+  cvsender/auth.py:116 valid_session
+  cvsender/db/store.py:529 touch_session
+sqlite3.OperationalError: database is locked
+```
+
+One confirm was lost to this and the send it should have started never happened.
+Session validity is now decided by a read; sliding the expiry is best-effort.
+
+### Startup died on a locked database
+
+Two consecutive starts ended `Application startup failed. Exiting.` from
+`sweep_stale_runs`; the service returned only because launchd retried. The
+startup sweeps are housekeeping and are now skipped when the database is busy.
+Regression: `tests/test_startup.py::test_startup_survives_a_busy_database`.
+
+### Browser check
+
+`/today`, `/status`, `/applications`, `/answers`, `/assist` and `/settings`
+loaded against live data at 1280px on the running service: goal ring 2/3 → 10/10,
+score badges with bands, real health rows, the funnel, the phone link
+`http://Yonatans-Macbook-Pro-6.local:8010` (verified `200`). One pre-existing bug
+found by looking: the CV role-version list was only ever loaded from inside the
+"Run now" click handler, so it always showed "…".
+

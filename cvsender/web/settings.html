@@ -219,7 +219,6 @@ $('runNow').onclick=async()=>{
     toast(r.run_id ? `Staging started (run #${r.run_id})` : (r.detail||'Nothing to stage')); }
   catch(e){ toast(e.message); }
   $('runNow').disabled=false; health();
-variants();
 };
 async function variants(){
   try{
@@ -248,6 +247,7 @@ $('cloudRestore').onclick=async()=>{
   catch(e){toast(e.message);} };
 cloudStatus();
 health();
+variants();   // was only ever called from inside the Run-now handler
 $('logoutAll').onclick=async()=>{
   if(!confirm('Sign out on every device, including this one?')) return;
   try{ const r=await api('POST','/api/auth/logout-all');

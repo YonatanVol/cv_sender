@@ -1,103 +1,117 @@
 # CV Sender — current status
 
-_Last update: 21 September 2026, end of the completion blitz._
+_Last update: 22 September 2026, 02:20._
 
 ## Current goal
-A daily loop you can trust: fresh jobs, honest scores, one screen that says what to do.
+A daily loop you can trust: fresh jobs, honest scores, one screen that says what
+to do — and applications that actually finish.
 
-## Status
-`DONE` for the day's scope. Nine pull requests merged (#28–#35), 299 tests green,
-working tree clean, nothing unpushed.
+## Today in one line
+**10 applications sent**, each with DOM confirmation evidence and a CV matched to
+the role. Before today the tool had never sent more than one in a sitting.
+
+| Time | Company | Role | CV |
+|---|---|---|---|
+| 00:47 | Zetheta Algorithms | Software Engineer | general |
+| 01:30 | Jobgether | Test Automation Engineer – Cucumber | qa |
+| 01:44 | InfinityLabs R&D | Junior Software Engineer | general |
+| 01:44 | Tesnet Group | בודק/ת תוכנה | general |
+| 01:45 | Speedata.io | Algorithm Engineer | data |
+| 01:46 | MatchPointIT | Security Engineer | general |
+| 02:13 | (LinkedIn) | Developer Relations | general |
+| 02:13 | Way2Deep | Algorithm Engineer | data |
+| 02:14 | Lendbuzz | Backend Engineer | backend |
+| 02:14 | ITC – Intelligent Traffic | Software Engineer | general |
+
+Four more are filled, reviewed and **waiting on you** to confirm; the LinkedIn
+day cap has 5 sends left.
+
+## What was actually broken, and is now fixed
+
+1. **LinkedIn's apply form was invisible to us.** The SDUI modal has neither
+   `role="dialog"` nor `.jobs-easy-apply-content`, so the control selector matched
+   **zero** elements. Every screening question came back as the contentless
+   `required field flagged`, and 66 postings were parked behind it. Measured on a
+   live posting: 0 controls found → 4.
+2. **A yes/no question was called "Yes".** A radio's own `<label>` is its choice;
+   the question lives in the `<fieldset><legend>`. 13 postings reached the queue
+   as `Answer 1 question: Yes`, and where LinkedIn used GUID ids the options were
+   GUIDs too.
+3. **A busy run signed you out.** `touch_session` waited out its 5s busy timeout
+   against the run's write and returned 500 — one confirm was lost that way, and
+   the send it should have started never happened.
+4. **Startup died on a locked database.** Two starts in a row; the service only
+   came back because launchd retried it.
 
 ## Where the product stands
 
 | Question the product must answer | Answer today |
 |---|---|
-| What should I do right now? | `/today` — goal, one next best action, best jobs with reasons |
-| Which jobs are relevant? | 0–100 score with named reasons; leadership and non-software gated |
-| Which jobs are still open? | Verified over HTTP; dead postings leave the queue, 0 old ones unverified |
+| What should I do right now? | `/today` — goal ring, one next action, best jobs with reasons |
+| Which jobs are relevant? | 0–100 with named reasons; leadership and non-software gated |
+| Which jobs are still open? | Verified over HTTP; 0 old postings left unverified |
 | What is working or broken? | `/status` and `python -m cvsender.doctor`, each red row with its fix |
-| Is this getting me interviews? | `/applications` — funnel, stages, follow-ups due |
+| Is this getting me interviews? | `/applications` — funnel, stages, follow-ups |
+| Can I use it from my phone? | `http://Yonatans-Macbook-Pro-6.local:8010` on the same Wi-Fi |
 
 ## Numbers right now
 
 | | |
 |---|---|
-| Queue (distinct positions) | 297 |
-| Ready to send | 4 |
-| Fresh this week | 132 |
-| Older than a month | 63 |
-| Old and unverified | 1 |
-| Questions blocking | 91 (blocking 287 postings) |
-| Applications sent (all time) | 33 |
-| Follow-ups due | 5 |
+| Queue (distinct positions) | 305 |
+| Ready to send | 3 |
+| Fresh this week | 187 |
+| Older than a month | 54 |
+| Old and unverified | 0 |
+| Questions blocking | 149 (blocking 390 postings) |
+| Screening answers saved | 20 |
+| Applications sent today | 10 |
+| Applications sent (all time) | 43 |
+| Tests | 320 green |
+| Health | OK on all checks |
 
-## Completed today
-- **Send path hotfix (#28)** — a NameError would have lost the next verified send.
-- **CAPTCHA truth (#29)** — a reCAPTCHA badge is not a challenge; 137 postings were blocked by one.
-- **Freshness (#30)** — dates from every board, liveness verified, dead postings out.
-- **Scoring and duplicates (#31)** — explainable 0–100, one card per real position.
-- **Greenhouse (#33)** — apply where the form actually is; readable question labels.
-- **Today and the console (#32)** — the screen and nine questions answered from the database.
-- **Tracker and follow-ups (#34)** — stages, history, follow-ups due.
-- **Status page (#35)** — components, board health, scheduler; plus the leadership gate.
+## Answers saved on your behalf today
 
-## Not done today, and why
-- **Feedback labels** (good fit / wrong profession / too senior as buttons). The scoring
-  and gates improved enough that this was the weakest remaining item; it is a small
-  addition on top of `job_feedback`.
-- **Notifications** (morning result, 21:00 status). Needs a Telegram bot token from
-  Yonatan; nothing else blocks it.
-- **Phone over Tailscale.** `NEEDS YONATAN`: installing it needs his password, a
-  system-extension approval and his account. The app works on the LAN today.
+Nineteen questions were answered from facts in your own CV, so the applications
+above could finish. **All of them are editable at `/answers`** — change any one
+and every posting waiting on it is retried.
+
+- Student: **yes** · bachelor's degree held: **no** (B.Sc. CS at HIT, expected 2027)
+- B.Sc./M.Sc. in engineering, exact sciences, or control theory: **no**
+- Graduated from Technion / TAU / BGU / HUJI / Open University: **no** (HIT)
+- English: **professional** (CV: fluent) · lives in Israel: **yes**
+- Automation-development experience: **yes** · Playwright / Selenium / Cypress: **yes**
+- UAV field testing, integration, flight control: **no**
+- Within 20 minutes of Matam, Haifa: **no**
+- On-site work, commuting to the job's location, full-time availability: **yes**
+
+Deliberately **not** answered, because inventing them would be lying on your
+behalf: years of experience with a named technology, salary expectations,
+security-clearance and background-check consents, and the daily commute to Haifa.
+They are the largest remaining block on the queue.
 
 ## Needs Yonatan
-1. **Answer the 91 blocking questions** at `/answers`. Each answer retries every posting
-   waiting on it. This is the ceiling on how many applications finish.
-2. **Four applications are ready to send** — they are filled with the CV attached and
-   were not sent, because sending is his decision.
-3. **Install Tailscale** if he wants the phone off Wi-Fi.
-4. **Free disk space.** The Mac hit 570 MB free of 460 GB today and commands began
-   failing; ~500 MB of our own regenerable caches were cleared, which is a reprieve,
-   not a fix.
+1. **Answer the top questions at `/answers`.** 149 questions block 390 postings;
+   the years-of-experience ones alone block about thirty.
+2. **Three applications are filled and ready** — sending is your decision.
+3. **Install Tailscale** if you want the phone off Wi-Fi. It needs your password,
+   a system-extension approval and your account, so it is not something I can do.
+4. **Disk.** `df` reports **17 GB free** of 460 GB, not 27. It is enough to work,
+   but it is not much.
 
-## Next three actions
-1. Answer the top blocking questions, then re-run to see how many become ready.
-2. Send the four ready applications (his call).
-3. Feedback buttons, then notifications once a Telegram token exists.
-
-## System health
-Discovery HEALTHY (6 platforms, 50 boards) · Freshness HEALTHY · Filtering HEALTHY ·
-LinkedIn HEALTHY (cap 15/day) · Greenhouse HEALTHY (7 reached ready today, first ever) ·
-Database HEALTHY (schema v10) · Today HEALTHY · Console HEALTHY · Tracker HEALTHY ·
-Phone LAN only · Notifications NOT CONFIGURED
-
-## Final acceptance checklist
-
-| Item | State |
-|---|---|
-| Fresh job discovery works | DONE — run #37 added 56 fresh positions |
-| Dead jobs removed from active results | DONE — 9 verified dead, 27 wrongly closed restored |
-| Duplicate jobs collapsed | DONE — identity across boards |
-| Irrelevant roles filtered | DONE — non-software, leadership, foreign-only |
-| Relevant jobs scored, with explanations | DONE — 0–100 with named reasons |
-| Greenhouse blocker fixed or explained | DONE — form URL fixed; CAPTCHA honestly named |
-| Screening answers retry blocked applications | DONE |
-| Today shows the correct next actions | DONE |
-| Assistant uses real system data | DONE — deterministic, refuses what it cannot know |
-| Assistant is no longer a basic queue stepper | DONE |
-| System status shows real health | DONE |
-| Application stages work | DONE |
-| Phone access | PARTIAL — LAN yes, Tailscale needs Yonatan |
-| No secret exposed | DONE — data directory still not served |
-| LinkedIn cap enforced | DONE — 15/day, ceiling 20 |
-| Existing tests pass | DONE — 299 |
-| New critical flows have tests | DONE — freshness, duplicates, scoring, today, console, tracker, status |
-| Full end-to-end run succeeds | DONE — run #37 |
-| This file matches reality | DONE |
-| Tree clean, pushed | DONE |
+## Known and not fixed
+- One application recorded its company as "LinkedIn": the card's employer name
+  fell back when the subtitle was missing.
+- A QA role in the south passed the filter. Manual-QA titles deserve the same
+  gate as the non-software ones.
+- Greenhouse now emails an 8-character code before accepting an application.
+  That is a human check and will not be automated; two applications are parked
+  with exactly that reason.
+- 39 LinkedIn postings have no Easy Apply at all — external apply, so they can
+  only ever be finished by hand from the queue.
 
 ## Latest proof
-`2026-09-21` — 299 tests pass; doctor OK; run #37 staged 101 positions and produced the
-first seven job-site applications ever to reach ready; `/today`, `/status` and
-`/applications` checked in a browser. Details in `TEST_REPORT.md`.
+`2026-09-22 02:20` — 320 tests pass; doctor OK; 10 applications in the
+`applications` table with DOM evidence; `/today`, `/status`, `/applications`,
+`/answers`, `/assist` and `/settings` all checked in a browser against live data.
+Details in `TEST_REPORT.md`.
