@@ -155,3 +155,22 @@ check — one input, no form. Probing the alternatives on a real coinbase postin
 label a person sees. Real output from a coinbase form: *Country*, *Location (City)*,
 *School*, *Start date month*, *Title* — and a select carries its options. 27 postings were
 re-queued to retry with the corrected URL. **281 passed.**
+
+## 2026-09-21 — Sprint 8 and 9: tracker and follow-ups
+
+`applications.stage` was written once as `applied` and never read; `app_events` was
+created in migration 001 and never written in the app's life.
+
+- **Lifecycle**: applied → replied → screen → interview → offer → rejected / withdrawn /
+  closed, with every move written to `app_events` as history. An unknown stage changes
+  nothing.
+- **Follow-ups**: applications still `applied` after 7 days appear on Today and on
+  `/applications`. The app **never sends one** — it records that Yonatan did, or snoozes
+  it a week. Live: **18 applications are overdue a follow-up**, the oldest 56 days.
+- **`/applications`**: funnel counts, stage buttons per application, follow-up actions,
+  which CV was sent. Browser-checked: the funnel shows 33 applied and every application
+  lists its stages.
+
+Stage buttons were deliberately **not** clicked on real data during testing — marking an
+application "replied" when nobody replied would put a fiction in the record. The
+transitions are covered by `tests/test_tracker.py` (9 cases) instead. **289 passed.**

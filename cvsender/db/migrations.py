@@ -226,6 +226,17 @@ MIGRATIONS: list[str] = [
     ALTER TABLE run_items ADD COLUMN identity TEXT;
     CREATE INDEX idx_items_identity ON run_items(identity);
     """,
+
+    # 010 — the tracker. applications.stage was written once as 'applied' and
+    # never read; app_events was created in 001 and never written. Sending is
+    # the middle of the story, not the end: without stages there is no way to
+    # see a reply, and no way to know a follow-up is due.
+    """
+    ALTER TABLE applications ADD COLUMN next_action_at REAL;
+    ALTER TABLE applications ADD COLUMN note TEXT;
+    ALTER TABLE applications ADD COLUMN contact TEXT;
+    CREATE INDEX idx_apps_stage ON applications(stage, sent_at);
+    """,
 ]
 
 

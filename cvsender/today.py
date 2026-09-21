@@ -91,6 +91,14 @@ def next_action(queue: list[dict], gaps: list[dict], now: float) -> Optional[dic
                 "why": f"One answer unblocks {top['blocking']} application"
                        f"{'s' if top['blocking'] != 1 else ''}",
                 "action": "Answer it"}
+    due = store.followups_due(now)
+    if due and not [i for i in queue if _bucket(i) == "question"]:
+        a = due[0]
+        days = int((now - (a.get("sent_at") or now)) / 86400)
+        return {"kind": "followup", "application": {"id": a["id"], "company": a["company"],
+                                                    "title": a["title"], "days": days},
+                "why": f"{days} days with no answer from {a['company']}",
+                "action": "Send a follow-up"}
     finishable = [i for i in queue if _bucket(i) in ("captcha", "form")]
     if finishable:
         best = max(finishable, key=lambda i: (_score_of(i).get("score") or 0))
@@ -126,6 +134,10 @@ def snapshot(limit: int = 3) -> dict:
         "sent_today": done,
         "linkedin_left": worker.linkedin_cap_left(),
         "applications": len(store.recent_applications(limit=1000)),
+        "funnel": store.funnel_counts(),
+        "followups_due": [{"id": a["id"], "company": a["company"], "title": a["title"],
+                           "days": int((now - (a.get("sent_at") or now)) / 86400)}
+                          for a in store.followups_due(now)[:5]],
         "freshness": store.queue_age_report(),
         "health": {"state": rep["state"],
                    "problems": [{"check": c["check"], "detail": c["detail"], "fix": c["fix"]}
