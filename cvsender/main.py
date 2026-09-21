@@ -691,6 +691,43 @@ def api_ask_questions():
                                        for k, label, _ in console.QUESTIONS]})
 
 
+@app.post("/api/send-ready")
+async def api_send_ready(request: Request):
+    """Send everything already prepared and waiting.
+
+    Items staged by the morning search live in a DRY run, which can never send.
+    This moves the chosen ones into a fresh LIVE run and confirms them, which
+    is the only path from 'the bot filled it' to 'it was submitted'.
+    """
+    _check_origin(request)
+    body = await request.json() if await request.body() else {}
+    wanted = body.get("item_ids")
+    ready = [i for i in store.assist_queue(1000) if i["state"] == "ready"]
+    if wanted:
+        ready = [i for i in ready if i["id"] in set(wanted)]
+    cap = int(body.get("limit") or 10)
+    ready = ready[:cap]
+    if not ready:
+        return JSONResponse({"ok": True, "sending": 0, "detail": "nothing is ready"})
+    run_id = store.create_run_atomic({"channels": ["ready"], "mode": "live"}, "live")
+    if run_id is None:
+        active = store.get_active_run()
+        raise HTTPException(409, f"a run is already active (#{active['id'] if active else '?'})")
+    moved = store.move_items_to_run(run_id, [i["id"] for i in ready])
+    n = 0
+    for item in store.list_items(run_id, ["ready"]):
+        if store.transition_item(item["id"], ["ready"], "sending"):
+            store.add_event(run_id, "item.state", "sending", item_id=item["id"],
+                            data={"state": "sending"})
+            n += 1
+    if n:
+        _ensure_send_worker(run_id)
+    else:
+        store.update_run(run_id, status="done", message="nothing to send")
+    return JSONResponse({"ok": True, "run_id": run_id, "moved": moved, "sending": n},
+                        status_code=202)
+
+
 @app.get("/applications")
 def applications_page():
     return FileResponse(str(WEB / "applications.html"))
