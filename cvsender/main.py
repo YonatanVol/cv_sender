@@ -656,6 +656,33 @@ def cv_variants():
     })
 
 
+@app.get("/today")
+def today_page():
+    return FileResponse(str(WEB / "today.html"))
+
+
+@app.get("/api/today")
+def api_today():
+    """Everything the Today screen shows, in one object."""
+    from . import today as today_mod
+    return JSONResponse(today_mod.snapshot())
+
+
+@app.post("/api/ask")
+async def api_ask(request: Request):
+    """The console: questions answered from the database, never invented."""
+    from . import console
+    body = await request.json()
+    return JSONResponse(console.ask(body.get("q") or ""))
+
+
+@app.get("/api/ask/questions")
+def api_ask_questions():
+    from . import console
+    return JSONResponse({"questions": [{"key": k, "label": label}
+                                       for k, label, _ in console.QUESTIONS]})
+
+
 @app.get("/api/answers/gaps")
 def answer_gaps(limit: int = 60):
     """The questions blocking the most applications right now."""

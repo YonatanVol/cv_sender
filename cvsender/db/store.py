@@ -159,6 +159,7 @@ def add_item(run_id: int, item: dict) -> Optional[int]:
         "first_seen_at": item.get("first_seen_at", now),
         "last_seen_at": item.get("last_seen_at", now),
         "liveness": item.get("liveness", "unknown"),
+        "block_kind": item.get("block_kind"),
     }
     cols = ", ".join(payload)
     ph = ", ".join("?" for _ in payload)

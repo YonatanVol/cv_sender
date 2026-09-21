@@ -115,3 +115,21 @@ duplicate collapse would have had nothing to read. Covered by
 *Limitation:* queued rows do not store the job description, so this rescoring saw titles
 only. Newly discovered jobs score with the description too, which is where the skill
 signals (C/C++, Linux, embedded, algorithms) mostly come from.
+
+## 2026-09-21 — Sprints 5 and 6: Today screen and console
+
+Checked in a real browser at `http://127.0.0.1:8010/today`:
+
+- **Goal ring** 0/3 with `264 waiting · 13 questions blocking · 15 LinkedIn sends left · 33 sent all time` — every figure matches a query.
+- **Next best action**: "Answer: What is your salary expectation? — one answer unblocks 1 application."
+- **Best jobs** with score, band and reasons: `91 excellent · Maytronics — Junior Embedded Software Engineer · 91 excellent fit — clear software role +5, junior role +20, embedded +8, in Israel +8`.
+- **Ask**: clicking *What is blocking applications?* returned, from the database:
+  "9 waiting on a screening answer; 113 need you to clear a form check; 3 failed with an
+  error; 139 need the form finished by hand. The questions blocking the most: …"
+- **Needs attention** and **System** sections match `/api/today`.
+
+Console checks: `c++ jobs` → 2, `backend jobs` → 13, `embedded jobs` → 5, `python jobs` → 1.
+`will I get this job?`, `what is the weather` and `sing me a song` are refused rather than
+answered. Three bugs in my own console code were found and fixed while testing: a bare
+`c` matched every question and every title, `c++ jobs` was not recognised at all, and a
+legacy row with no `block_kind` was labelled "ready" when it was not. **276 passed.**
