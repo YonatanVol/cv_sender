@@ -392,6 +392,47 @@ def already_sent(dedupe_key: str, content_hash: Optional[str] = None) -> bool:
         return False
 
 
+# ------------------------------ freshness ----------------------------------
+
+def set_liveness(item_id: int, liveness: str) -> None:
+    """Record what a liveness probe found, and when."""
+    with tx() as c:
+        c.execute("UPDATE run_items SET liveness=?, checked_at=? WHERE id=?",
+                  (liveness, _now(), item_id))
+
+
+def touch_seen(dedupe_key: str, posted_at: Optional[float] = None) -> None:
+    """This posting was seen again in discovery: it is still listed."""
+    now = _now()
+    with tx() as c:
+        c.execute("UPDATE run_items SET last_seen_at=?, liveness='active', "
+                  "posted_at=COALESCE(posted_at, ?) WHERE dedupe_key=?",
+                  (now, posted_at, dedupe_key))
+
+
+def queue_age_report() -> dict:
+    """Queue composition by age and liveness — the number that made freshness
+    a priority (41% of the queue was older than 30 days)."""
+    now = _now()
+    out = {"total": 0, "fresh_7d": 0, "stale_14d": 0, "old_30d": 0,
+           "closed": 0, "unverified_old": 0}
+    for i in assist_queue(limit=2000):
+        out["total"] += 1
+        seen = i.get("last_seen_at") or i.get("updated_at") or 0
+        age_d = (now - seen) / 86400
+        if age_d <= 7:
+            out["fresh_7d"] += 1
+        elif age_d <= 30:
+            out["stale_14d"] += 1
+        else:
+            out["old_30d"] += 1
+        if (i.get("liveness") or "") == "closed":
+            out["closed"] += 1
+        if age_d > 14 and not i.get("checked_at"):
+            out["unverified_old"] += 1
+    return out
+
+
 # ----------------------------- CV variants ---------------------------------
 
 def upsert_cv_variant(name: str, label: str, path: str, sha256: str,
@@ -645,6 +686,7 @@ def assist_queue(limit: int = 200) -> list[dict]:
         return [dict(r) for r in c.execute(
             "SELECT i.* FROM run_items i "
             "WHERE i.state IN ('needs_input','failed','ready') "
+            "AND COALESCE(i.liveness,'unknown') != 'closed' "
             "  AND NOT EXISTS (SELECT 1 FROM applications a "
             "                  WHERE a.dedupe_key = i.dedupe_key) "
             "  AND NOT EXISTS (SELECT 1 FROM dismissed d "

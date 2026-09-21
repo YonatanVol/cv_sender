@@ -13,6 +13,7 @@ import time
 
 import httpx
 
+from .. import freshness
 from ..config import SCREENSHOT_DIR, STEP_TIMEOUT_S, USER_AGENT
 from ..engine import answerbank as ab
 from . import atsform
@@ -70,6 +71,7 @@ class GreenhouseChannel:
                         external_id=str(ext), title=j.get("title", ""),
                         location=loc, url=url, apply_url=url,
                         remote="remote" in loc.lower(),
+                        posted_at=freshness.parse_posted(j.get("updated_at")),
                         description=_strip(j.get("content", "")),
                         raw={"id": ext},
                     ))

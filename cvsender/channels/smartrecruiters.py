@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import httpx
 
+from .. import freshness
 from ..config import USER_AGENT
 from . import atsform
 from .base import Job
@@ -50,6 +51,7 @@ class SmartRecruitersChannel:
                         external_id=str(pid), title=j.get("name", ""),
                         location=where, url=url, apply_url=url,
                         remote=bool(loc.get("remote")),
+                        posted_at=freshness.parse_posted(j.get("releasedDate")),
                         description=(j.get("jobAd") or {}).get("sections", {}).get(
                             "jobDescription", {}).get("text", "")[:2000]
                         if isinstance(j.get("jobAd"), dict) else "",

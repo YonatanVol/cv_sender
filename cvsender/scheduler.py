@@ -20,7 +20,7 @@ from __future__ import annotations
 import threading
 import time
 
-from . import config
+from . import config, freshness
 from .core.run_manager import manager
 from .db import store
 
@@ -35,6 +35,8 @@ LAST_TICK = "scheduler.last_tick"
 LAST_STAGING = "scheduler.last_staging"
 LAST_STAGING_RESULT = "scheduler.last_staging_result"
 ENABLED = "scheduler.enabled"
+LAST_VERIFY = "scheduler.last_verify"
+VERIFY_PER_TICK = 10
 
 
 def enabled() -> bool:
@@ -99,11 +101,18 @@ def stage_now(cap: int | None = None) -> int | None:
 
 def tick() -> dict:
     """One scheduler beat. Pure enough to call from a test."""
-    out = {"staged": None, "purged": 0}
+    out = {"staged": None, "purged": 0, "verified": {}}
     store.set_setting(LAST_TICK, str(time.time()))
     out["purged"] = store.purge_expired_sessions()
     if not enabled():
         return out
+    # Drain the unverified backlog a few postings at a time, so a dead job
+    # never sits at the top of the queue and no board is hammered.
+    if not manager.busy():
+        out["verified"] = freshness.sweep(limit=VERIFY_PER_TICK)
+        if out["verified"].get("closed"):
+            store.set_setting(LAST_VERIFY,
+                              f"{out['verified']['closed']} closed at {time.strftime('%H:%M')}")
     if due_now(time.localtime(), store.get_setting(LAST_STAGING)):
         out["staged"] = stage_now()
     return out
@@ -154,6 +163,7 @@ def status() -> dict:
         "last_staging_result": store.get_setting(LAST_STAGING_RESULT),
         "next_staging_at": f"{_int_setting('run.hour', DEFAULT_HOUR):02d}:"
                            f"{_int_setting('run.minute', DEFAULT_MINUTE):02d}",
+        "last_verify": store.get_setting(LAST_VERIFY),
         "target_depth": target_depth(),
         "channels": channels(),
     }

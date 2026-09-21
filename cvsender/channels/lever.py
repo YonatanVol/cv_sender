@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import httpx
 
+from .. import freshness
 from ..config import USER_AGENT
 from . import atsform
 from .base import Job
@@ -45,6 +46,7 @@ class LeverChannel:
                         location=loc, url=hosted,
                         apply_url=j.get("applyUrl") or (hosted + "/apply"),
                         remote=(cats.get("workplaceType", "").lower() == "remote"),
+                        posted_at=freshness.parse_posted(j.get("createdAt")),
                         description=j.get("descriptionPlain", "")[:2000],
                         raw={"id": j.get("id")}))
                 spec.setdefault("_health", {})[f"lever:{token}"] = \
