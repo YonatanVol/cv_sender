@@ -463,8 +463,13 @@ def _apply_send_result(run_id, it, res):
             screenshot_after=res.screenshot or "")
         if moved:
             item = store.get_item(it["id"])
-            store.record_application(item, ev, cv_variant=h.get("cv_variant") or "",
-                                     cv_sha256=h.get("cv_sha256") or "")
+            # The handle lives on the item; reading it from a caller local was a
+            # NameError that would have crashed the first send after #27, AFTER
+            # the item was marked sent — losing the application row entirely.
+            handle = (json.loads(item.get("result_json") or "{}") or {}).get("handle") or {}
+            store.record_application(item, ev,
+                                     cv_variant=handle.get("cv_variant") or "",
+                                     cv_sha256=handle.get("cv_sha256") or "")
         _emit(run_id, "item.state", "sent", item_id=it["id"],
               data={"state": "sent", "evidence": ev})
     elif res.state == SENT_UNVERIFIED:

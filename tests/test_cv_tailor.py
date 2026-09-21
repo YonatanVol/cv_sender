@@ -126,3 +126,28 @@ def test_variants_endpoint_lists_them(tmp_path, monkeypatch):
         body = c.get("/api/cv/variants").json()
     assert body["variants"][0]["name"] == "backend"
     assert body["variants"][0]["is_default"] == 1
+
+
+def test_a_verified_send_records_the_application_and_its_cv(env):
+    """Regression: _apply_send_result referenced an undefined name, so the first
+    real send after the per-role CV change would have raised NameError *after*
+    the item was marked sent — no application row, no dedupe, run dead."""
+    import json
+    from cvsender.channels.base import ConfirmationEvidence, SendResult, SENT
+    from cvsender.db import store
+    from cvsender.engine import worker
+    cv_tailor, store_mod, paths = env
+    run = store.create_run_atomic({}, "live")
+    iid = store.add_item(run, {"channel": "linkedin", "company": "acme", "title": "Backend",
+                               "apply_url": "u", "dedupe_key": "linkedin:acme:1",
+                               "content_hash": "h", "state": "sending"})
+    store.transition_item(iid, ["sending"], "sending", result_json=json.dumps(
+        {"handle": {"cv_variant": "backend", "cv_sha256": "a" * 64}}))
+    res = SendResult(state=SENT, evidence=ConfirmationEvidence("dom", matched="sent", at=1.0))
+    worker._apply_send_result(run, store.get_item(iid), res)      # must not raise
+    assert store.get_item(iid)["state"] == "sent"
+    from cvsender.db.connection import ro
+    with ro() as c:
+        row = dict(c.execute("SELECT cv_variant, cv_sha256 FROM applications").fetchone())
+    assert row["cv_variant"] == "backend" and row["cv_sha256"] == "a" * 64
+    assert store.sent_today() == 1
