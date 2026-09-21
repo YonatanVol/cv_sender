@@ -151,9 +151,30 @@ _FIELD_JS = r"""el => {
   };
 }"""
 
+# 2026-09-22: the SDUI apply modal has neither role="dialog" nor
+# .jobs-easy-apply-content, so the two legacy selectors matched ZERO controls and
+# every screening question came back as the useless "required field flagged".
+# The form elements carry stable ids (…easyApplyFormElement…) inside
+# .fb-dash-form-element wrappers; match those too, and keep the old selectors for
+# the modal LinkedIn still serves to some accounts.
 _CONTROLS = ("div[role='dialog'] input, div[role='dialog'] select, "
              "div[role='dialog'] textarea, div.jobs-easy-apply-content input, "
-             "div.jobs-easy-apply-content select, div.jobs-easy-apply-content textarea")
+             "div.jobs-easy-apply-content select, div.jobs-easy-apply-content textarea, "
+             "[id*='easyApplyFormElement'], "
+             ".fb-dash-form-element input, .fb-dash-form-element select, "
+             ".fb-dash-form-element textarea, "
+             ".jobs-easy-apply-form-section__grouping input, "
+             ".jobs-easy-apply-form-section__grouping select, "
+             ".jobs-easy-apply-form-section__grouping textarea")
+
+# A select showing its own placeholder is unanswered, not answered.
+_PLACEHOLDERS = ("select an option", "choose an option", "בחר אפשרות",
+                 "בחירת אפשרות", "select...", "-", "--")
+
+
+def is_placeholder(value: str) -> bool:
+    """True when a control's value is the 'nothing chosen yet' placeholder."""
+    return (value or "").strip().lower() in _PLACEHOLDERS
 
 
 class LinkedInChannel:
@@ -387,6 +408,8 @@ class LinkedInChannel:
                 continue
             if f["type"] in ("hidden", "file", "submit", "button"):
                 continue
+            if f["tag"] not in ("INPUT", "SELECT", "TEXTAREA"):
+                continue     # the id selector also matches the wrapper <div>
             f["el"] = el
             if f["type"] == "radio":
                 key = f["name"] or f["label"]
@@ -403,8 +426,11 @@ class LinkedInChannel:
                 continue
             kind = ("checkbox" if f["type"] == "checkbox"
                     else "select" if f["tag"] == "SELECT" else "text")
+            value = f["value"]
+            if kind == "select" and is_placeholder(value):
+                value = ""                 # "Select an option" is not an answer
             out.append({**f, "kind": kind,
-                        "value": ("Yes" if f["checked"] else "") if kind == "checkbox" else f["value"]})
+                        "value": ("Yes" if f["checked"] else "") if kind == "checkbox" else value})
         return out + list(radios.values())
 
     async def _fill_step(self, page, profile, filled, asked=None):
