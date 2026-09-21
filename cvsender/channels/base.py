@@ -6,6 +6,7 @@ method that does, and the engine calls it exclusively after a human confirm.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol, runtime_checkable
 
@@ -33,6 +34,16 @@ class Job:
     @property
     def dedupe_key(self) -> str:
         return f"{self.channel}:{(self.company or '').strip().lower()}:{self.external_id}"
+
+    @property
+    def identity(self) -> str:
+        """One real position, whatever board it came from.
+
+        dedupe_key is channel-prefixed, so the same job listed on LinkedIn and
+        on Greenhouse was structurally two cards. This key is not: it is the
+        company, the role and the place, normalised.
+        """
+        return job_identity(self.company, self.title, self.location)
 
     @property
     def content_hash(self) -> str:
@@ -130,3 +141,28 @@ class ChannelAdapter(Protocol):
 
     async def send(self, ctx: Any, handle: SendHandle, cancel: Any) -> SendResult:
         ...
+
+_IDENT_DROP = re.compile(r"\b(inc|ltd|limited|llc|corp|corporation|gmbh|co|"
+                         r"technologies|technology|labs|group|israel|il)\b", re.I)
+# Boards write the same employer as "comigo", "Comigo.io" and "comigo-ai".
+_IDENT_TLD = re.compile(r"[.\-](io|ai|com|net|org|co|tech|app|dev)$", re.I)
+_IDENT_NOISE = re.compile(r"[^a-z0-9\u0590-\u05ea]+")
+_TITLE_NOISE = re.compile(
+    r"\b(m/f/d|f/m/d|all genders|remote|hybrid|on-?site|full[- ]time|part[- ]time|"
+    r"contract|temporary|maternity cover|tel aviv|israel|\d{3,})\b", re.I)
+
+
+def _norm(text: str, extra=None) -> str:
+    t = (text or "").lower()
+    if extra is not None:
+        t = extra.sub(" ", t)
+    t = _IDENT_DROP.sub(" ", t)
+    return _IDENT_NOISE.sub("-", t).strip("-")
+
+
+def job_identity(company: str, title: str, location: str = "") -> str:
+    """company|role|city — stable across boards, so duplicates collapse."""
+    city = (location or "").split(",")[0]
+    name = _IDENT_TLD.sub("", _norm(company))
+    return f"{name}|{_norm(title, _TITLE_NOISE)}|{_norm(city)}"
+

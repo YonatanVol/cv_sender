@@ -99,8 +99,12 @@ async def _prepare_ats(run_id, options, cancel, cap, profile, cv_path,
             store.touch_seen(job.dedupe_key, job.posted_at)
             funnel["deduped"] += 1
             continue
+        if store.identity_in_queue(job.identity):
+            funnel["deduped"] += 1      # same position, different board
+            continue
         funnel["kept"] += 1
-        kept.append({"job": job, "score": v.score, "signals": v.signals})
+        kept.append({"job": job, "score": v.score, "signals": v.signals,
+                     "verdict": v})
     _emit(run_id, "funnel.update", "funnel", data=funnel)
 
     # Order by sendability first, then score: boards that have blocked us before
@@ -123,6 +127,18 @@ async def _prepare_ats(run_id, options, cancel, cap, profile, cv_path,
     return max(0, cap - added)
 
 
+def _score_json(kept: dict) -> dict:
+    """Store the whole explanation, not just the number: every card shows why."""
+    v = kept.get("verdict")
+    out = {"signals": kept.get("signals") or []}
+    if v is not None:
+        out.update({"score": round(v.score), "band": v.band, "review": v.review,
+                    "reasons": [{"label": c.label, "points": c.points}
+                                for c in (v.contributions or [])],
+                    "explain": v.explain()})
+    return out
+
+
 def _add_items(run_id, selected) -> int:
     n = 0
     for k in selected:
@@ -131,7 +147,9 @@ def _add_items(run_id, selected) -> int:
             "channel": job.channel, "company": job.company, "title": job.title,
             "location": job.location, "url": job.url, "apply_url": job.apply_url,
             "dedupe_key": job.dedupe_key, "content_hash": job.content_hash,
-            "score": k["score"], "score_json": {"signals": k["signals"]},
+            "score": k["score"],
+            "score_json": _score_json(k),
+            "identity": job.identity,
             "posted_at": job.posted_at, "first_seen_at": time.time(),
             "last_seen_at": time.time(), "liveness": "active",
             "state": "queued"})
@@ -227,7 +245,10 @@ async def _prepare_linkedin(run_id, options, cancel, cap, profile, cv_path):
         if store.waiting_in_queue(job.dedupe_key):
             store.touch_seen(job.dedupe_key, job.posted_at)
             continue
-        kept.append({"job": job, "score": v.score, "signals": v.signals})
+        if store.identity_in_queue(job.identity):
+            continue                    # same position, different board
+        kept.append({"job": job, "score": v.score, "signals": v.signals,
+                     "verdict": v})
     kept.sort(key=lambda k: k["score"], reverse=True)
     _add_items(run_id, kept[:cap])
     await _prepare_loop(run_id, ctx, {"linkedin": li}, cancel, profile, cv_path)
@@ -288,6 +309,22 @@ async def run_takeover(item_id: int, cancel) -> None:
                 "reason": "window open — finish it, then press 'I sent it'"})
 
 
+def _block_kind(res, it: dict) -> str:
+    """Why this item is waiting: they used to be one indistinguishable bucket."""
+    reason = (getattr(res, "reason", "") or "").lower()
+    if _review_reason(it):
+        return "review"
+    if "captcha" in reason:
+        return "captcha"
+    if "question" in reason or "answer" in reason:
+        return "question"
+    if getattr(res, "state", "") == "failed" or "error" in reason or "timeout" in reason:
+        return "error"
+    if getattr(res, "state", "") == "ready":
+        return ""
+    return "form"
+
+
 def _review_reason(it: dict) -> str:
     """The funnel's 'review:<why>' signal stored with the item, or ''."""
     try:
@@ -327,7 +364,8 @@ def _apply_prepare_result(run_id, it, res, cv_path, profile, cv_variant=""):
     result_json["handle"] = handle
     state = {READY: "ready", NEEDS_INPUT: "needs_input",
              FAILED: "failed", SKIPPED: "skipped"}.get(res.state, "failed")
-    fields = {"reason": res.reason, "result_json": json.dumps(result_json)}
+    fields = {"reason": res.reason, "result_json": json.dumps(result_json),
+              "block_kind": _block_kind(res, it)}
     review = _review_reason(it)
     if state == "ready" and review:
         # Filled and ready, but the title is only software-adjacent: never let
