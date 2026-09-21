@@ -32,6 +32,25 @@ def _strip(text: str) -> str:
     return _TAG.sub(" ", html.unescape(text or "")).strip()
 
 
+def hosted_form(token: str, job_id, absolute_url: str = "") -> str:
+    """Where the application form actually lives.
+
+    absolute_url often points at the company's own careers page (coinbase,
+    catonetworks, stripe, jfrog…), which renders a job description and an
+    "Apply" button in an SPA — no form in the DOM. Every one of the 32 postings
+    that reported "no recognized form fields found" was off-domain like this.
+    Greenhouse always hosts the real form at a derivable URL, and the API gives
+    us both parts, so use that and keep absolute_url as the human-facing link.
+    """
+    if absolute_url and "greenhouse.io" in absolute_url:
+        return absolute_url
+    # The hosted job page redirects back to the company's site when the board
+    # is configured that way, so use the embed endpoint: it always serves the
+    # form itself (verified on coinbase — 56 fields including the CV upload,
+    # where the company page has one and a security check).
+    return f"https://boards.greenhouse.io/embed/job_app?for={token}&token={job_id}"
+
+
 class GreenhouseChannel:
     channel = "greenhouse"
 
@@ -69,7 +88,7 @@ class GreenhouseChannel:
                     jobs.append(Job(
                         channel="greenhouse", company=token,
                         external_id=str(ext), title=j.get("title", ""),
-                        location=loc, url=url, apply_url=url,
+                        location=loc, url=url, apply_url=hosted_form(token, ext, url),
                         remote="remote" in loc.lower(),
                         posted_at=freshness.parse_posted(j.get("updated_at")),
                         description=_strip(j.get("content", "")),
@@ -307,35 +326,9 @@ async def _has_prohibited(root) -> bool:
     return False
 
 
-async def _required_unfilled(root) -> list[Question]:
-    out: list[Question] = []
-    try:
-        els = await root.query_selector_all(
-            "input[required], input[aria-required='true'], "
-            "select[required], select[aria-required='true'], "
-            "textarea[required], textarea[aria-required='true']")
-    except Exception:
-        els = []
-    for el in els:
-        try:
-            if not await el.is_visible():
-                continue
-            t = (await el.get_attribute("type")) or "text"
-            if t in ("hidden", "file"):
-                continue
-            val = ""
-            try:
-                val = await el.input_value()
-            except Exception:
-                pass
-            if val:
-                continue
-            label = (await _field_key(root, el)).strip()[:100] or "required field"
-            out.append(Question(label=label, kind="text",
-                                reason="required, unrecognized"))
-        except Exception:
-            continue
-    return out
+async def _required_unfilled(root):
+    """One definition of 'what is this form asking' — see atsform."""
+    return await atsform.required_unfilled(root)
 
 
 async def _submit_button(root):

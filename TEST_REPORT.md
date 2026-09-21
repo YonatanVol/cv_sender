@@ -133,3 +133,25 @@ Console checks: `c++ jobs` → 2, `backend jobs` → 13, `embedded jobs` → 5, 
 answered. Three bugs in my own console code were found and fixed while testing: a bare
 `c` matched every question and every title, `c++ jobs` was not recognised at all, and a
 legacy row with no `block_kind` was labelled "ready" when it was not. **276 passed.**
+
+## 2026-09-21 — Sprint 4 completed: the Greenhouse form
+
+**Root cause, measured.** All 32 distinct postings reporting "no recognized form fields
+found" were off-domain: `absolute_url` points at the company's own careers page (coinbase,
+catonetworks, stripe, jfrog…), which renders a description, an Apply button and a security
+check — one input, no form. Probing the alternatives on a real coinbase posting:
+
+| URL | Inputs | Form? |
+|---|---|---|
+| `job-boards.greenhouse.io/coinbase/jobs/{id}` | 1 | no — redirects to coinbase.com |
+| `boards.greenhouse.io/coinbase/jobs/{id}` | 1 | no — same redirect |
+| **`boards.greenhouse.io/embed/job_app?for=coinbase&token={id}`** | **56 (2 file inputs)** | **yes** |
+
+**After the fix**, five off-domain postings prepared end-to-end: **5 of 5 reached the form**,
+8–9 fields filled, **CV attached** on every one. Before: 0 of 5.
+
+**Question labels.** The ATS reader concatenated name+id+placeholder+aria-label, producing
+`question_67972490 are you legally authorized…` and `country country*`. It now reads the
+label a person sees. Real output from a coinbase form: *Country*, *Location (City)*,
+*School*, *Start date month*, *Title* — and a select carries its options. 27 postings were
+re-queued to retry with the corrected URL. **281 passed.**

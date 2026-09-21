@@ -139,8 +139,36 @@ async def has_prohibited(root) -> bool:
     return False
 
 
+# The label a person sees, read from the element outwards. The old version
+# concatenated name+id+placeholder+aria-label, which produced
+# "question_67972490 are you legally authorized…" and "country country*" —
+# unreadable, and useless on the answers page.
+_LABEL_JS = r"""el => {
+  const root = el.getRootNode();
+  const clean = t => (t || "").replace(/\s+/g, " ").replace(/\*+$/, "").trim().slice(0, 160);
+  if (el.id && root.querySelector) {
+    const l = root.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+    if (l && l.innerText.trim()) return clean(l.innerText);
+  }
+  const wrap = el.closest("label");
+  if (wrap && wrap.innerText.trim()) return clean(wrap.innerText);
+  const grp = el.closest("fieldset, [role=group], [role=radiogroup], .field, div");
+  if (grp) {
+    const lg = grp.querySelector("legend, label, h3, h4, [role=heading]");
+    if (lg && lg.innerText.trim()) return clean(lg.innerText);
+  }
+  return clean(el.getAttribute("aria-label") || el.getAttribute("placeholder") || "");
+}"""
+
+_OPTIONS_JS = """el => el.tagName === 'SELECT'
+  ? [...el.options].map(o => (o.label || o.value || '').trim()).filter(Boolean).slice(0, 25)
+  : []"""
+
+
 async def required_unfilled(root) -> list[Question]:
+    """Questions a human must answer, with the wording they would recognise."""
     out: list[Question] = []
+    seen: set[str] = set()
     try:
         els = await root.query_selector_all(
             "input[required], input[aria-required='true'], select[required], "
@@ -152,13 +180,24 @@ async def required_unfilled(root) -> list[Question]:
         try:
             if not await el.is_visible():
                 continue
-            t = (await el.get_attribute("type")) or "text"
-            if t in ("hidden", "file"):
+            t = ((await el.get_attribute("type")) or "text").lower()
+            if t in ("hidden", "file", "submit", "button"):
                 continue
-            if (await el.input_value()):
+            if t in ("checkbox", "radio"):
+                if await el.is_checked():
+                    continue
+            elif (await el.input_value()):
                 continue
-            label = (await field_key(root, el)).strip()[:100] or "required field"
-            out.append(Question(label=label, reason="required, unrecognized"))
+            label = (await el.evaluate(_LABEL_JS) or "").strip()
+            if not label or label.lower() in seen:
+                continue
+            seen.add(label.lower())
+            options = await el.evaluate(_OPTIONS_JS) or []
+            kind = ("select" if options else
+                    "checkbox" if t == "checkbox" else
+                    "radio" if t == "radio" else "text")
+            out.append(Question(label=label[:160], kind=kind, options=options[:12],
+                                required=True, reason="needs your answer once"))
         except Exception:
             continue
     return out
