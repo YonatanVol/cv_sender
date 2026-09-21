@@ -625,7 +625,15 @@ def healthz():
 @app.get("/api/health")
 def api_health():
     """Every way this has broken before, as a list of rows with fixes."""
-    return JSONResponse({**health.report(), "scheduler": scheduler.status()})
+    return JSONResponse({**health.report(), "scheduler": scheduler.status(),
+                         "sources": health.sources(),
+                         "queue": store.queue_age_report(),
+                         "funnel": store.funnel_counts()})
+
+
+@app.get("/status")
+def status_page():
+    return FileResponse(str(WEB / "status.html"))
 
 
 @app.post("/api/run-now")

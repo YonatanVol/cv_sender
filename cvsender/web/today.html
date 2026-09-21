@@ -157,7 +157,7 @@ function render(s) {
     + h.problems.map(p => `<div class="stat"><span>${esc(p.check)}</span><span class="sub">${esc(p.detail)}</span></div>`).join('')
     + `<div class="stat"><span>Next search</span><b>${esc(sch.next_staging_at)}</b></div>`
     + `<div class="stat"><span>Last search</span><span class="sub">${esc(sch.last_staging_result || 'not yet today')}</span></div>`
-    + `<div class="row"><a class="btn ghost" href="/settings">Settings &amp; status</a></div>`;
+    + `<div class="row"><a class="btn ghost" href="/status">Open system status</a></div>`;
 }
 
 async function load() {

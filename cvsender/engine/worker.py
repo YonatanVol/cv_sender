@@ -78,8 +78,14 @@ async def _prepare_ats(run_id, options, cancel, cap, profile, cv_path,
     for adapter in adapters.values():
         cancel.check()
         all_jobs.extend(await adapter.discover(spec))
-    for key, h in (spec.get("_health") or {}).items():
+    health_rows = spec.get("_health") or {}
+    for key, h in health_rows.items():
         _emit(run_id, "source.health", key, data={"key": key, **h})
+    # Keep it: per-board health used to exist only inside this run's event
+    # stream, so the status page had nothing to show between runs.
+    if health_rows:
+        store.set_setting("health.sources", json.dumps(
+            {"at": time.time(), "sources": health_rows}))
     store.heartbeat(run_id)
 
     funnel = {"fetched": len(all_jobs), "role": 0, "geography": 0, "score": 0,

@@ -21,7 +21,7 @@ function toast(message) {
 /* Same header everywhere, current page marked. */
 function navBar(current) {
   const pages = [['/today','Today'],['/assist','Queue'],['/answers','Answers'],
-                 ['/applications','Sent'],['/settings','Settings']];
+                 ['/applications','Sent'],['/status','System'],['/settings','Settings']];
   return `<a class="brand" href="/today">⚡ CV Sender</a>
     <nav>${pages.filter(([h]) => h !== current)
       .map(([h, label]) => `<a href="${h}">${label}</a>`).join('')}</nav>`;

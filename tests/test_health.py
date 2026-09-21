@@ -86,3 +86,40 @@ def test_cloud_row_offline_is_a_failure_not_a_crash(env, monkeypatch):
                                                   "url": "x", "error": "ConnectError"})
     row = env.cloud_row()
     assert row["state"] == env.FAIL and "pauses after 7 idle days" in row["fix"]
+
+
+def test_board_health_survives_between_runs(env):
+    """Per-board results used to exist only inside a run's event stream, so the
+    status page had nothing to show between runs."""
+    import json
+    from cvsender.db import store
+    store.set_setting("health.sources", json.dumps({"at": 1.0, "sources": {
+        "greenhouse:melio": {"status": 200, "jobs": 12},
+        "greenhouse:dead": {"status": 404, "jobs": 0},
+        "ashby:quiet": {"status": 200, "jobs": 0}}}))
+    rows = {r["source"]: r for r in env.sources()}
+    assert rows["greenhouse:melio"]["state"] == env.OK
+    assert rows["greenhouse:dead"]["state"] == env.FAIL
+    assert rows["ashby:quiet"]["state"] == env.WARN     # reachable but empty
+
+
+def test_sources_are_empty_not_broken_before_the_first_run(env):
+    assert env.sources() == []
+
+
+def test_status_page_and_payload(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "s.db")
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.delenv("CVS_HOST", raising=False)
+    from cvsender.db.migrations import migrate
+    migrate()
+    from fastapi.testclient import TestClient
+    from cvsender import cloud, main, scheduler
+    monkeypatch.setattr(cloud, "sync_on_start", lambda: {})
+    monkeypatch.setattr(cloud, "status", lambda: {"enabled": True, "connected": True,
+                                                  "url": "x", "error": ""})
+    monkeypatch.setattr(scheduler, "start", lambda: None)
+    with TestClient(main.app) as c:
+        assert c.get("/status").status_code == 200
+        body = c.get("/api/health").json()
+        assert {"state", "checks", "scheduler", "sources", "queue", "funnel"} <= set(body)

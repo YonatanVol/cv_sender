@@ -71,10 +71,14 @@ JUNIOR_HE = [
 
 SENIOR_EN = [
     "senior", "sr", "staff", "principal", "lead", "team lead", "tech lead",
-    "manager", "director", "head of", "vp", "architect", "expert",
+    # "lead" does not match "Leader" (word-boundary), and a real posting —
+    # catonetworks "Software Team Leader (C)" — scored 86 because of it.
+    "leader", "team leader", "group leader", "head", "head of", "chief",
+    "manager", "director", "vp", "architect", "expert", "distinguished",
 ]
 SENIOR_HE = [
-    "בכיר", "סניור", "מוביל", "ראש צוות", "מנהל", "ארכיטקט", "מומחה",
+    "בכיר", "סניור", "מוביל", "ראש צוות", "ראש קבוצה", "מנהל", "מנהלת",
+    "ארכיטקט", "מומחה", "סמנכ",
 ]
 
 ISRAEL_HINTS_EN = [

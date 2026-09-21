@@ -153,6 +153,27 @@ def profile_row() -> dict:
     return _row("profile", OK, f"{p.get('full_name')} · {Path(cv).name}")
 
 
+def sources() -> list[dict]:
+    """Per-board discovery health from the last run that fetched."""
+    import json
+    raw = store.get_setting("health.sources")
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return []
+    at = data.get("at")
+    out = []
+    for key, row in sorted((data.get("sources") or {}).items()):
+        status, jobs = row.get("status"), row.get("jobs", 0)
+        ok = status == 200
+        out.append({"source": key, "state": OK if (ok and jobs) else
+                    WARN if ok else FAIL,
+                    "jobs": jobs, "status": status, "at": at})
+    return out
+
+
 CHECKS = (profile_row, browser_engine, linkedin_session, scheduler_row,
           launchd_job, cloud_row, secrets_row, queue_row)
 
