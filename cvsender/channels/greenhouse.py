@@ -15,6 +15,7 @@ import httpx
 
 from ..config import SCREENSHOT_DIR, STEP_TIMEOUT_S, USER_AGENT
 from ..engine import answerbank as ab
+from . import atsform
 from .base import (READY, NEEDS_INPUT, FAILED, SENT, SENT_UNVERIFIED,
                    SEND_FAILED, ConfirmationEvidence, FieldFill, Job,
                    PrepareResult, Question, SendHandle, SendResult)
@@ -284,14 +285,8 @@ async def _attach_cv(root, cv_path: str) -> bool:
 
 
 async def _has_captcha(root) -> bool:
-    for sel in ("iframe[src*='recaptcha']", "iframe[src*='hcaptcha']",
-                ".g-recaptcha"):
-        try:
-            if await root.query_selector(sel):
-                return True
-        except Exception:
-            continue
-    return False
+    """One definition of 'a human must solve this' — see atsform.captcha_kind."""
+    return await atsform.has_captcha(root)
 
 
 async def _has_prohibited(root) -> bool:
