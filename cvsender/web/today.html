@@ -113,7 +113,7 @@ function render(s) {
     ? `Done for today — ${g.done} sent.`
     : `${g.remaining} more to finish today.`;
   $('goalSub').textContent =
-    `${s.counts.total} waiting · ${s.questions_total} question${s.questions_total === 1 ? '' : 's'} blocking · ${s.linkedin_left} LinkedIn sends left · ${s.applications} sent all time`;
+    `${s.counts.total} waiting · ${s.questions_total} question${s.questions_total === 1 ? '' : 's'} blocking ${s.questions_blocking} · ${s.linkedin_left} LinkedIn sends left · ${s.applications} sent all time`;
 
   const n = s.next;
   if (n) {

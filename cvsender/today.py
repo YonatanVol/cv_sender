@@ -114,7 +114,9 @@ def snapshot(limit: int = 3) -> dict:
     """Everything the Today screen shows, in one object."""
     now = time.time()
     queue = store.assist_queue(limit=1000)
-    gaps = store.answer_gaps(limit=50)
+    # The whole point of this screen is that its numbers are true, so count
+    # every blocking question — a limit here was reported as the total.
+    gaps = store.answer_gaps(limit=500)
     buckets: dict[str, list[dict]] = {}
     for item in queue:
         buckets.setdefault(_bucket(item), []).append(item)
@@ -131,6 +133,7 @@ def snapshot(limit: int = 3) -> dict:
         "counts": {k: len(v) for k, v in sorted(buckets.items())} | {"total": len(queue)},
         "questions": [{"label": g["label"], "blocking": g["blocking"]} for g in gaps[:5]],
         "questions_total": len(gaps),
+        "questions_blocking": sum(g["blocking"] for g in gaps),
         "sent_today": done,
         "linkedin_left": worker.linkedin_cap_left(),
         "applications": len(store.recent_applications(limit=1000)),

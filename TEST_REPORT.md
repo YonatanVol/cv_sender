@@ -198,3 +198,15 @@ that run: 53 questions, 39 borderline-review, 1 form, 1 CAPTCHA.
 because the senior gate matched `lead` but not `Leader`. Leadership titles (leader, head,
 chief, manager, director, ראש צוות, מנהל) are now gated; **6 leadership roles were found
 in the live queue and removed**. Covered by seven new cases. **299 passed.**
+
+## 2026-09-21 — Final check, and the last bug it found
+
+Browser check of `/today` and `/status` at the end of the day showed Today saying
+"50 questions blocking" while the system check said "91 question(s) blocking 287".
+Cause: the snapshot asked for at most 50 gaps and then reported that limit as the total.
+A screen that rounds its own numbers cannot be trusted, which is the point of this whole
+day, so it now counts every blocking question and shows how many postings they hold up.
+Covered by `test_the_question_count_is_the_real_total_not_a_page_size`. **300 passed.**
+
+Final state: doctor OK on all 8 rows · 297 positions queued · 4 ready to send ·
+91 questions blocking 287 postings · 33 applications, 5 follow-ups due · tree clean.
