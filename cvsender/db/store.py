@@ -794,6 +794,27 @@ def recent_applications(limit: int = 20) -> list[dict]:
             "SELECT * FROM applications ORDER BY sent_at DESC LIMIT ?", (limit,))]
 
 
+def move_items_to_run(run_id: int, item_ids: list[int],
+                      states: tuple = ("ready",)) -> int:
+    """Move prepared items into another run.
+
+    The scheduler stages in DRY mode, and a confirm is only allowed on a LIVE
+    run, so work prepared by the morning search could never be sent without
+    this: the items are moved into a live run, keeping their filled form,
+    screenshot and SendHandle.
+    """
+    if not item_ids:
+        return 0
+    marks = ",".join("?" for _ in item_ids)
+    smarks = ",".join("?" for _ in states)
+    with tx() as c:
+        cur = c.execute(
+            f"UPDATE run_items SET run_id=?, updated_at=? WHERE id IN ({marks}) "
+            f"AND state IN ({smarks})",
+            (run_id, _now(), *item_ids, *states))
+        return cur.rowcount
+
+
 # ------------------------------ tracker ------------------------------------
 # What happened after the send. 'applied' is where every application starts;
 # the rest are only ever set by Yonatan, because only he sees the replies.
