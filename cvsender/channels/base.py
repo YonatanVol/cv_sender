@@ -27,6 +27,7 @@ class Job:
     apply_url: str = ""
     remote: bool = False
     description: str = ""
+    posted_at: Optional[float] = None      # epoch seconds, when the board says
     raw: dict = field(default_factory=dict)
 
     @property

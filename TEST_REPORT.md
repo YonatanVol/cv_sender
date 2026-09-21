@@ -46,3 +46,34 @@ is partly a dead-job symptom, which Sprint 2 freshness handles.
 `_apply_send_result` referenced an undefined `h` (introduced in #27, never executed).
 The next verified send would have raised NameError *after* the item was marked sent.
 Fixed and covered by `test_a_verified_send_records_the_application_and_its_cv`. **198 passed** at that point.
+
+## 2026-09-21 — Sprint 2: job freshness
+
+**Verification pass over the 77 unverified postings older than 14 days** (plain HTTP, no browser):
+
+| | Before | After |
+|---|---|---|
+| Queue (distinct) | 277 | 268 |
+| Older than 30 days | 77 | 68 |
+| Unverified and old | 77 | **0** |
+| Verified dead, removed | — | **9** |
+
+**A mistake caught by the manual sample, and what it cost.** The first pass closed 36
+postings. Hand-checking six of them found four still live: the closure phrase list
+contained the fragment `nie`, which matches inside ordinary words like *companies* and
+*Denied*. The pattern now requires whole phrases only. All 36 were re-verified: **27 were
+wrongly closed and were restored** (24 active, 3 unknown), 9 were genuinely gone. Tests
+now assert that pages containing *companies*, *Denied*, *convenience* and
+"We are accepting applications now" are never treated as closed.
+
+**The nine genuinely dead** (each redirects to its board root with `?error=true`):
+twilio ×2, similarweb, anthropic ×2, gitlab ×4.
+
+Tests: `tests/test_freshness.py` — 40 cases (date parsing in four shapes, LinkedIn
+relative ages in English and Hebrew including the dual form שבועיים, closure
+classification, "never dismiss on a guess", queue behaviour). **239 passed.**
+
+**Also fixed today:** the Mac had 570 MB free of 460 GB, and commands were failing with
+"no space left on device". Freed ~500 MB of regenerable browser caches under
+`data2/linkedin_profile` and screenshots older than 14 days; the LinkedIn login was
+untouched and still valid for 357 days. The wider disk problem is Yonatan's to address.

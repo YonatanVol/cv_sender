@@ -90,8 +90,13 @@ async def _prepare_ats(run_id, options, cancel, cap, profile, cv_path,
         if not v.keep:
             funnel[v.stage] = funnel.get(v.stage, 0) + 1
             continue
-        if store.already_handled(job.dedupe_key, job.content_hash, job.apply_url) \
-                or store.waiting_in_queue(job.dedupe_key):
+        if store.already_handled(job.dedupe_key, job.content_hash, job.apply_url):
+            funnel["deduped"] += 1
+            continue
+        if store.waiting_in_queue(job.dedupe_key):
+            # Still listed on the board: refresh its freshness instead of
+            # staging a second copy.
+            store.touch_seen(job.dedupe_key, job.posted_at)
             funnel["deduped"] += 1
             continue
         funnel["kept"] += 1
@@ -127,6 +132,8 @@ def _add_items(run_id, selected) -> int:
             "location": job.location, "url": job.url, "apply_url": job.apply_url,
             "dedupe_key": job.dedupe_key, "content_hash": job.content_hash,
             "score": k["score"], "score_json": {"signals": k["signals"]},
+            "posted_at": job.posted_at, "first_seen_at": time.time(),
+            "last_seen_at": time.time(), "liveness": "active",
             "state": "queued"})
         if iid:
             n += 1
@@ -215,8 +222,10 @@ async def _prepare_linkedin(run_id, options, cancel, cap, profile, cv_path):
         v = score_job(job, mode=geography, strictness=strictness)
         if not v.keep:
             continue
-        if store.already_handled(job.dedupe_key, job.content_hash, job.apply_url) \
-                or store.waiting_in_queue(job.dedupe_key):
+        if store.already_handled(job.dedupe_key, job.content_hash, job.apply_url):
+            continue
+        if store.waiting_in_queue(job.dedupe_key):
+            store.touch_seen(job.dedupe_key, job.posted_at)
             continue
         kept.append({"job": job, "score": v.score, "signals": v.signals})
     kept.sort(key=lambda k: k["score"], reverse=True)

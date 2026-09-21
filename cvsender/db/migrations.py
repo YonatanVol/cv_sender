@@ -200,6 +200,24 @@ MIGRATIONS: list[str] = [
     ALTER TABLE applications ADD COLUMN cv_variant TEXT;
     ALTER TABLE applications ADD COLUMN cv_sha256 TEXT;
     """,
+
+    # 008 — job freshness. 41% of the queue was older than 30 days with no way
+    # to know whether the posting still existed; two sampled July postings
+    # turned out to redirect to an empty board. Dates the adapters already
+    # receive are now kept, and liveness is verified rather than assumed.
+    # block_kind separates "a human must solve a CAPTCHA" from "answer a
+    # question" and "is this even the right kind of job", which all shared the
+    # needs_input state.
+    """
+    ALTER TABLE run_items ADD COLUMN first_seen_at REAL;
+    ALTER TABLE run_items ADD COLUMN last_seen_at REAL;
+    ALTER TABLE run_items ADD COLUMN posted_at REAL;
+    ALTER TABLE run_items ADD COLUMN checked_at REAL;
+    ALTER TABLE run_items ADD COLUMN liveness TEXT NOT NULL DEFAULT 'unknown';
+    ALTER TABLE run_items ADD COLUMN block_kind TEXT;
+    CREATE INDEX idx_items_liveness ON run_items(liveness, checked_at);
+    UPDATE run_items SET first_seen_at = created_at, last_seen_at = updated_at;
+    """,
 ]
 
 

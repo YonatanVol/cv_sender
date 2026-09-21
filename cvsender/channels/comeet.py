@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import httpx
 
+from .. import freshness
 from ..config import USER_AGENT
 from . import atsform
 from .base import Job
@@ -49,6 +50,7 @@ class ComeetChannel:
                         external_id=str(j.get("uid") or j.get("id")),
                         title=j.get("name", ""), location=location,
                         url=url, apply_url=url,
+                        posted_at=freshness.parse_posted(j.get("time_updated")),
                         description=(j.get("description") or "")[:2000],
                         raw={"uid": j.get("uid")}))
                 spec.setdefault("_health", {})[f"comeet:{uid}"] = \

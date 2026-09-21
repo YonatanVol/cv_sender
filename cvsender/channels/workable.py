@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import httpx
 
+from .. import freshness
 from ..config import USER_AGENT
 from . import atsform
 from .base import Job
@@ -58,6 +59,7 @@ class WorkableChannel:
                         apply_url=j.get("application_url")
                         or APPLY_URL.format(token=token, shortcode=code),
                         remote=bool(j.get("telecommuting")),
+                        posted_at=freshness.parse_posted(j.get("published_on") or j.get("created_at")),
                         description=(j.get("description") or "")[:2000],
                         raw={"token": token, "shortcode": code}))
                 spec.setdefault("_health", {})[f"workable:{token}"] = \

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import httpx
 
+from .. import freshness
 from ..config import USER_AGENT
 from . import atsform
 from .base import Job
@@ -54,6 +55,7 @@ class AshbyChannel:
                         apply_url=j.get("applyUrl") or url,
                         remote=bool(j.get("isRemote")) or
                         (j.get("workplaceType") or "").lower() == "remote",
+                        posted_at=freshness.parse_posted(j.get("publishedAt") or j.get("updatedAt")),
                         description=(j.get("descriptionPlain")
                                     or j.get("description", ""))[:2000],
                         raw={"id": j.get("id")}))
