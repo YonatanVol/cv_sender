@@ -1,9 +1,13 @@
 # Blockers
 
+_Last update: 21 September 2026._
+
 | # | Blocker | Owner | Status | Detail |
 |---|---|---|---|---|
-| 1 | 13 screening questions unanswered | Yonatan | NEEDS YONATAN | They are personal facts (GPA, university, availability, C/C++ level). Answer once at `/answers`; every blocked posting retries automatically. |
-| 2 | Tailscale not installed | Yonatan | NEEDS YONATAN | Needs his Mac password, a system-extension approval and a Tailscale account. Until then the phone works on the LAN only. |
-| 3 | Greenhouse CAPTCHA on 109 distinct postings | External | ACCEPTED | Not fixable in code and never will be. They get the assisted path (`Fill it for me` → human clears CAPTCHA → `I sent it`). |
-| 4 | Greenhouse "no recognized form fields" on 32 distinct postings | Claude Code | IN PROGRESS | Suspected off-domain `absolute_url`, so the real form never loads. Sprint 4. |
-| 5 | Screening questions barely captured on job sites | Claude Code | IN PROGRESS | 7 of 225 Greenhouse, 0 of 48 Ashby. The ATS path does not record labelled questions the way LinkedIn now does. Sprint 4. |
+| 1 | 50 screening questions unanswered | Yonatan | NEEDS YONATAN | Personal facts (GPA, school, availability, years with a technology). Answer once at `/answers`; every posting waiting on that question retries automatically. This is the ceiling on how many applications finish. |
+| 2 | 4 applications ready, not sent | Yonatan | NEEDS YONATAN | Filled with the CV attached. Sending is his decision, so they wait. |
+| 3 | Tailscale not installed | Yonatan | NEEDS YONATAN | Needs his Mac password, a system-extension approval and a Tailscale account. The app works on the LAN meanwhile. |
+| 4 | Disk nearly full | Yonatan | NEEDS YONATAN | The Mac hit 570 MB free of 460 GB today and commands failed with "no space left on device". ~500 MB of our own regenerable caches were cleared; the wider cleanup is his. |
+| 5 | CAPTCHA on some job sites | External | ACCEPTED | Genuinely unsolvable by the app and always will be. Those postings get the assisted path: filled, then a human clears the check. |
+| 6 | Telegram notifications | Claude Code | NOT STARTED | Needs a bot token from Yonatan (BotFather). Nothing else blocks it. |
+| 7 | Feedback labels on cards | Claude Code | NOT STARTED | good fit / wrong profession / too senior as buttons feeding the score. Scoring and gates improved enough today that this was the weakest remaining item. |
