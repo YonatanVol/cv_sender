@@ -4,7 +4,7 @@ _Last update: 21 September 2026._
 
 | # | Blocker | Owner | Status | Detail |
 |---|---|---|---|---|
-| 1 | 50 screening questions unanswered | Yonatan | NEEDS YONATAN | Personal facts (GPA, school, availability, years with a technology). Answer once at `/answers`; every posting waiting on that question retries automatically. This is the ceiling on how many applications finish. |
+| 1 | 91 screening questions unanswered | Yonatan | NEEDS YONATAN | Personal facts (GPA, school, availability, years with a technology). Answer once at `/answers`; every posting waiting on that question retries automatically. This is the ceiling on how many applications finish. |
 | 2 | 4 applications ready, not sent | Yonatan | NEEDS YONATAN | Filled with the CV attached. Sending is his decision, so they wait. |
 | 3 | Tailscale not installed | Yonatan | NEEDS YONATAN | Needs his Mac password, a system-extension approval and a Tailscale account. The app works on the LAN meanwhile. |
 | 4 | Disk nearly full | Yonatan | NEEDS YONATAN | The Mac hit 570 MB free of 460 GB today and commands failed with "no space left on device". ~500 MB of our own regenerable caches were cleared; the wider cleanup is his. |

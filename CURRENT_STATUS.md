@@ -28,7 +28,7 @@ working tree clean, nothing unpushed.
 | Fresh this week | 132 |
 | Older than a month | 63 |
 | Old and unverified | 1 |
-| Questions blocking | 50 |
+| Questions blocking | 91 (blocking 287 postings) |
 | Applications sent (all time) | 33 |
 | Follow-ups due | 5 |
 
@@ -52,7 +52,7 @@ working tree clean, nothing unpushed.
   system-extension approval and his account. The app works on the LAN today.
 
 ## Needs Yonatan
-1. **Answer the 50 blocking questions** at `/answers`. Each answer retries every posting
+1. **Answer the 91 blocking questions** at `/answers`. Each answer retries every posting
    waiting on it. This is the ceiling on how many applications finish.
 2. **Four applications are ready to send** — they are filled with the CV attached and
    were not sent, because sending is his decision.
