@@ -69,6 +69,12 @@
     </div>
   </div>
 
+  <div class="card hide" id="followCard">
+    <h2>Follow-ups due</h2>
+    <div id="follows"></div>
+    <div class="row"><a class="btn ghost" href="/applications">Open sent applications</a></div>
+  </div>
+
   <div class="card">
     <h2>Needs attention</h2>
     <div id="attention" class="sub">Loading…</div>
@@ -112,11 +118,14 @@ function render(s) {
   const n = s.next;
   if (n) {
     $('nextCard').classList.remove('hide');
-    $('nextWhat').textContent = n.kind === 'answer'
-      ? `Answer: ${n.question}` : `${n.action}: ${n.item.company} — ${n.item.title}`;
+    $('nextWhat').textContent =
+      n.kind === 'answer' ? `Answer: ${n.question}`
+      : n.kind === 'followup' ? `Follow up: ${n.application.company} — ${n.application.title}`
+      : `${n.action}: ${n.item.company} — ${n.item.title}`;
     $('nextWhy').textContent = n.why;
-    $('nextRow').innerHTML = n.kind === 'answer'
-      ? `<a class="btn" href="/answers">Answer it</a>`
+    $('nextRow').innerHTML =
+      n.kind === 'answer' ? `<a class="btn" href="/answers">Answer it</a>`
+      : n.kind === 'followup' ? `<a class="btn" href="/applications">Open it</a>`
       : `<a class="btn" href="${esc(n.item.url)}" target="_blank" rel="noopener">${esc(n.action)}</a>
          <a class="btn ghost" href="/assist">Open queue</a>`;
   } else {
@@ -126,6 +135,12 @@ function render(s) {
   $('jobs').innerHTML = s.best_jobs.length
     ? s.best_jobs.map(jobRow).join('')
     : 'Nothing in the queue. Run a search from Settings.';
+
+  if (s.followups_due && s.followups_due.length) {
+    $('followCard').classList.remove('hide');
+    $('follows').innerHTML = s.followups_due.map(f =>
+      `<div class="stat"><span>${esc(f.company)} — ${esc(f.title)}</span><b>${f.days}d</b></div>`).join('');
+  } else { $('followCard').classList.add('hide'); }
 
   const c = s.counts, names = {ready: 'Ready to send', question: 'Waiting on your answer',
     captcha: 'Need a form check', review: 'Borderline — approve or skip',

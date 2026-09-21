@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Applications — CV Sender</title>
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="stylesheet" href="/static/shared.css">
+<meta name="theme-color" content="#0f1115">
+<style>
+  .funnel{display:flex;flex-wrap:wrap;gap:8px}
+  .step{flex:1 1 84px;background:var(--well);border:1px solid var(--line);border-radius:11px;
+        padding:9px 10px;text-align:center}
+  .step b{display:block;font-size:19px;font-variant-numeric:tabular-nums}
+  .step span{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+  .step.on{border-color:var(--acc)}
+  .app{padding:12px 0;border-top:1px solid var(--line)}
+  .app:first-of-type{border-top:0}
+  .app .top{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .app .co{font-weight:700}
+  .app .ttl{color:var(--mut);font-size:14px}
+  .app .meta{color:var(--mut);font-size:12px;margin-top:3px}
+  .stages{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .stages button{padding:6px 11px;font-size:12px;font-weight:600;border-radius:16px;
+                 background:var(--well);border:1px solid var(--line);color:var(--mut)}
+  .stages button.on{border-color:var(--acc);color:var(--acc)}
+  .due{border-color:var(--warn)}
+  .filters{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}
+  .filters button{padding:7px 12px;font-size:13px;border-radius:18px;background:var(--well);
+                  border:1px solid var(--line);color:var(--fg)}
+  .filters button.on{border-color:var(--acc);color:var(--acc);font-weight:700}
+</style>
+</head>
+<body>
+<header id="hdr"></header>
+<main>
+  <div class="card">
+    <h2>The funnel</h2>
+    <div class="funnel" id="funnel"></div>
+    <div class="sub" style="margin-top:10px">Only you can see the replies, so only you
+      move an application along. Nothing here is guessed.</div>
+  </div>
+
+  <div class="card">
+    <div class="filters" id="filters"></div>
+    <div id="list" class="sub">Loading…</div>
+  </div>
+</main>
+<div id="toast" class="toast hide"></div>
+<script src="/static/shared.js"></script>
+<script>
+$('hdr').innerHTML = navBar('/applications');
+let data = null, filter = '';
+
+const LABEL = {applied:'Applied', replied:'Replied', screen:'Screen',
+               interview:'Interview', offer:'Offer', rejected:'Rejected',
+               withdrawn:'Withdrawn', closed:'Closed'};
+
+function appRow(a) {
+  const stages = data.stages.map(s =>
+    `<button data-id="${a.id}" data-stage="${s}" class="${a.stage === s ? 'on' : ''}">${LABEL[s] || s}</button>`).join('');
+  const sent = new Date((a.sent_at || 0) * 1000).toLocaleDateString();
+  return `<div class="app${a.followup_due ? ' due' : ''}">
+    <div class="top"><span class="co">${esc(a.company)}</span>
+      <span class="ttl">${esc(a.title)}</span></div>
+    <div class="meta">sent ${esc(sent)} · ${a.days_since_sent}d ago · ${esc(a.channel)}${a.cv_variant ? ' · CV: ' + esc(a.cv_variant) : ''}
+      ${a.followup_due ? ' · <b style="color:var(--warn)">follow-up due</b>' : ''}</div>
+    <div class="stages">${stages}
+      ${a.followup_due ? `<button data-follow="${a.id}">✓ Followed up</button>
+        <button data-snooze="${a.id}">Snooze a week</button>` : ''}</div>
+  </div>`;
+}
+
+function render() {
+  $('funnel').innerHTML = Object.entries(data.funnel)
+    .map(([s, n]) => `<div class="step ${n ? 'on' : ''}"><b>${n}</b><span>${LABEL[s] || s}</span></div>`).join('');
+  const all = Object.keys(data.funnel);
+  $('filters').innerHTML = [['', 'All']].concat(all.map(s => [s, LABEL[s] || s]))
+    .map(([k, label]) => `<button data-f="${k}" class="${filter === k ? 'on' : ''}">${label}</button>`).join('');
+  const rows = data.applications.filter(a => !filter || a.stage === filter);
+  $('list').innerHTML = rows.length ? rows.map(appRow).join('')
+    : 'Nothing here yet.';
+
+  document.querySelectorAll('#filters button').forEach(b =>
+    b.onclick = () => { filter = b.dataset.f; render(); });
+  document.querySelectorAll('.stages button[data-stage]').forEach(b =>
+    b.onclick = () => move(b.dataset.id, b.dataset.stage));
+  document.querySelectorAll('[data-follow]').forEach(b =>
+    b.onclick = () => followup(b.dataset.follow, false));
+  document.querySelectorAll('[data-snooze]').forEach(b =>
+    b.onclick = () => followup(b.dataset.snooze, true));
+}
+
+async function move(id, stage) {
+  try { await api('POST', `/api/applications/${id}/stage`, { stage });
+    toast(`Moved to ${LABEL[stage] || stage}`); await load(); }
+  catch (e) { toast(e.message); }
+}
+async function followup(id, snooze) {
+  try { await api('POST', `/api/applications/${id}/followup`, { snooze });
+    toast(snooze ? 'Snoozed a week' : 'Follow-up recorded'); await load(); }
+  catch (e) { toast(e.message); }
+}
+async function load() {
+  try { data = await api('GET', '/api/applications'); render(); }
+  catch (e) { $('list').textContent = e.message; }
+}
+load();
+</script>
+</body>
+</html>

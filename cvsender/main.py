@@ -683,6 +683,54 @@ def api_ask_questions():
                                        for k, label, _ in console.QUESTIONS]})
 
 
+@app.get("/applications")
+def applications_page():
+    return FileResponse(str(WEB / "applications.html"))
+
+
+@app.get("/api/applications")
+def api_applications(stage: str = "", limit: int = 200):
+    """Everything sent, with its current stage and what is due."""
+    apps = store.list_applications(stage or None, limit)
+    due = {a["id"] for a in store.followups_due()}
+    for a in apps:
+        a["followup_due"] = a["id"] in due
+        a["days_since_sent"] = int((time.time() - (a.get("sent_at") or 0)) / 86400)
+    return JSONResponse({"applications": apps, "funnel": store.funnel_counts(),
+                         "stages": list(store.STAGES)})
+
+
+@app.post("/api/applications/{app_id}/stage")
+async def api_set_stage(app_id: int, request: Request):
+    """Record what happened: replied, screen, interview, offer, rejected."""
+    _check_origin(request)
+    body = await request.json()
+    stage = (body.get("stage") or "").strip()
+    if not store.set_stage(app_id, stage, (body.get("note") or "").strip()):
+        raise HTTPException(400, f"unknown stage or application: {stage}")
+    return JSONResponse({"ok": True, "application": store.get_application(app_id),
+                         "history": store.app_events(app_id)})
+
+
+@app.post("/api/applications/{app_id}/followup")
+async def api_followup(request: Request, app_id: int):
+    """Mark a follow-up as sent (by Yonatan — the app never sends one) or
+    snooze it for another week."""
+    _check_origin(request)
+    body = await request.json()
+    if body.get("snooze"):
+        store.snooze_followup(app_id, int(body.get("days") or 7))
+        return JSONResponse({"ok": True, "snoozed": True})
+    store.add_app_event(app_id, "followup", (body.get("note") or "").strip())
+    store.snooze_followup(app_id, 7)
+    return JSONResponse({"ok": True, "logged": True})
+
+
+@app.get("/api/applications/{app_id}/history")
+def api_history(app_id: int):
+    return JSONResponse({"history": store.app_events(app_id)})
+
+
 @app.get("/api/answers/gaps")
 def answer_gaps(limit: int = 60):
     """The questions blocking the most applications right now."""

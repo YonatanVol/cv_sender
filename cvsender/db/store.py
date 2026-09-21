@@ -794,6 +794,86 @@ def recent_applications(limit: int = 20) -> list[dict]:
             "SELECT * FROM applications ORDER BY sent_at DESC LIMIT ?", (limit,))]
 
 
+# ------------------------------ tracker ------------------------------------
+# What happened after the send. 'applied' is where every application starts;
+# the rest are only ever set by Yonatan, because only he sees the replies.
+STAGES = ("applied", "replied", "screen", "interview", "offer",
+          "rejected", "withdrawn", "closed")
+OPEN_STAGES = ("applied", "replied", "screen", "interview", "offer")
+FOLLOWUP_AFTER_DAYS = 7
+
+
+def list_applications(stage: Optional[str] = None, limit: int = 500) -> list[dict]:
+    q = "SELECT * FROM applications"
+    args: list = []
+    if stage:
+        q += " WHERE stage = ?"
+        args.append(stage)
+    q += " ORDER BY sent_at DESC LIMIT ?"
+    args.append(limit)
+    with ro() as c:
+        return [dict(r) for r in c.execute(q, args)]
+
+
+def get_application(app_id: int) -> Optional[dict]:
+    with ro() as c:
+        return _row(c.execute("SELECT * FROM applications WHERE id=?",
+                              (app_id,)).fetchone())
+
+
+def set_stage(app_id: int, stage: str, note: str = "") -> bool:
+    """Move an application along, and keep the history. Unknown stage: no-op."""
+    if stage not in STAGES:
+        return False
+    now = _now()
+    with tx() as c:
+        cur = c.execute("UPDATE applications SET stage=?, stage_at=?, "
+                        "note=COALESCE(NULLIF(?,''), note) WHERE id=?",
+                        (stage, now, note, app_id))
+        if cur.rowcount != 1:
+            return False
+        c.execute("INSERT INTO app_events (application_id, at, kind, note) "
+                  "VALUES (?,?,?,?)", (app_id, now, f"stage:{stage}", note or None))
+    return True
+
+
+def add_app_event(app_id: int, kind: str, note: str = "") -> None:
+    with tx() as c:
+        c.execute("INSERT INTO app_events (application_id, at, kind, note) "
+                  "VALUES (?,?,?,?)", (app_id, _now(), kind, note or None))
+
+
+def app_events(app_id: int) -> list[dict]:
+    with ro() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM app_events WHERE application_id=? ORDER BY at", (app_id,))]
+
+
+def funnel_counts() -> dict:
+    with ro() as c:
+        rows = c.execute("SELECT stage, COUNT(*) n FROM applications GROUP BY stage")
+        counts = {r["stage"] or "applied": r["n"] for r in rows}
+    return {s: counts.get(s, 0) for s in STAGES}
+
+
+def followups_due(now: Optional[float] = None, days: int = FOLLOWUP_AFTER_DAYS) -> list[dict]:
+    """Applications with no answer after a week. The app never sends these —
+    it writes the reminder and the template; Yonatan sends them."""
+    now = now if now is not None else _now()
+    cutoff = now - days * 86400
+    with ro() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM applications WHERE stage='applied' AND sent_at <= ? "
+            "AND (next_action_at IS NULL OR next_action_at <= ?) "
+            "ORDER BY sent_at LIMIT 50", (cutoff, now))]
+
+
+def snooze_followup(app_id: int, days: int = 7) -> None:
+    with tx() as c:
+        c.execute("UPDATE applications SET next_action_at=? WHERE id=?",
+                  (_now() + days * 86400, app_id))
+
+
 # ------------------------------ recovery -----------------------------------
 
 def sweep_stuck_items(older_than_s: float = 600.0) -> int:
