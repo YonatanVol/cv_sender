@@ -115,19 +115,38 @@ async def _card_company(anchor) -> str:
 # this runs on each element it hands back.
 _FIELD_JS = r"""el => {
   const root = el.getRootNode();
-  const clean = t => (t || "").replace(/\s+/g, " ").replace(/^\*+|\*+$/g, "").trim().slice(0, 200);
-  const labelText = () => {
+  const clean = t => (t || "").replace(/\s+/g, " ").replace(/^\*+|\*+$/g, "")
+                              .replace(/\s*(Required|חובה)\s*$/i, "").trim().slice(0, 200);
+  const optionOf = () => {            // this control's OWN text (a radio choice)
     if (el.id && root.querySelector) {
       const l = root.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (l && l.innerText.trim()) return l.innerText;
     }
     const wrap = el.closest("label");
     if (wrap && wrap.innerText.trim()) return wrap.innerText;
+    return el.getAttribute("aria-label") || el.value || "";
+  };
+  const groupText = () => {           // the question a group of choices asks
     const grp = el.closest("fieldset, [role=radiogroup], [role=group]");
-    if (grp) {
-      const lg = grp.querySelector("legend, h3, h4, [role=heading]");
-      if (lg && lg.innerText.trim()) return lg.innerText;
+    if (!grp) return "";
+    const lg = grp.querySelector("legend, h3, h4, [role=heading]");
+    return lg && lg.innerText.trim() ? lg.innerText : "";
+  };
+  const labelText = () => {
+    // A radio's own <label> is its choice ("Yes"), never the question. Ask the
+    // fieldset first, or every yes/no question arrives called "Yes".
+    if ((el.type || "").toLowerCase() === "radio") {
+      const g = groupText();
+      if (g) return g;
     }
+    if (el.id && root.querySelector) {
+      const l = root.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (l && l.innerText.trim()) return l.innerText;
+    }
+    const wrap = el.closest("label");
+    if (wrap && wrap.innerText.trim()) return wrap.innerText;
+    const g = groupText();
+    if (g) return g;
     let n = el.previousElementSibling, hops = 0;
     while (n && hops++ < 3) {
       if (n.innerText && n.innerText.trim()) return n.innerText;
@@ -137,10 +156,7 @@ _FIELD_JS = r"""el => {
     if (par && par.innerText && par.innerText.trim()) return par.innerText;
     return el.getAttribute("aria-label") || el.getAttribute("name") || "";
   };
-  const own = () => {
-    const wrap = el.closest("label");
-    return clean(wrap ? wrap.innerText : (el.getAttribute("aria-label") || el.value || ""));
-  };
+  const own = () => clean(optionOf());
   return {
     tag: el.tagName, type: (el.type || "").toLowerCase(), id: el.id || "",
     name: el.name || "", required: !!(el.required || el.getAttribute("aria-required") === "true"),

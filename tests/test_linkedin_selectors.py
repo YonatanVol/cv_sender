@@ -134,3 +134,36 @@ def test_sdui_question_reaches_the_human_as_a_question():
     missing = run(LinkedInChannel()._fill_step(
         SduiPage([_field(label="What is your GPA?", options=[])]), {}, [], asked))
     assert [q.label for q in missing] == ["What is your GPA?"]
+
+
+# ------------------------- radio groups ask a question ----------------------
+# Measured: LinkedIn renders a yes/no question as a <fieldset> whose <legend> is
+# the question, with one <label for=…> per choice. Reading the choice label as
+# the question turned 13 postings into 'Answer 1 question: Yes'.
+
+def test_radio_group_is_labelled_with_its_question():
+    q = _field(tag="INPUT", type="radio", id="q-0", name="q",
+               label="Are you comfortable working in an onsite setting?",
+               own="Yes", value="Yes", options=[])
+    n = dict(q, id="q-1", own="No", value="No")
+    fields = run(LinkedInChannel()._read_fields(SduiPage([q, n])))
+    assert len(fields) == 1                       # one question, not two
+    group = fields[0]
+    assert group["kind"] == "radio"
+    assert group["label"] == "Are you comfortable working in an onsite setting?"
+    assert group["options"] == ["Yes", "No"]
+
+
+def test_field_reader_asks_the_fieldset_before_the_choice_label():
+    """The JS half of the same fix.
+
+    _FIELD_JS runs in the page, so it cannot be exercised here; this asserts the
+    ordering that makes it correct — a radio consults its group first. Verified
+    live on 2026-09-22 against linkedin.com/jobs/view/4464764797: the question
+    read 'Are you comfortable working in an onsite setting?' where it previously
+    read 'Yes'.
+    """
+    from cvsender.channels.linkedin import _FIELD_JS
+    radio_branch = _FIELD_JS.index('=== "radio"')
+    for_branch = _FIELD_JS.index('label[for=', radio_branch)
+    assert radio_branch < for_branch          # group wins for a radio
