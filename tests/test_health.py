@@ -123,3 +123,52 @@ def test_status_page_and_payload(tmp_path, monkeypatch):
         assert c.get("/status").status_code == 200
         body = c.get("/api/health").json()
         assert {"state", "checks", "scheduler", "sources", "queue", "funnel"} <= set(body)
+
+
+class _fake_playwright:
+    """Stands in for sync_playwright(): a context manager with one attribute.
+
+    A class body cannot see the enclosing function's names, so the path is
+    passed in rather than closed over.
+    """
+    def __init__(self, exe): self.chromium = type("C", (), {"executable_path": str(exe)})()
+    def __enter__(self): return self
+    def __exit__(self, *exc): return False
+
+
+# ------------------- the false green that cost a batch ----------------------
+# 2026-09-22: ~/Library/Caches/ms-playwright was cleaned again. The check looked
+# only at chromium.executable_path, so `doctor` printed a green "browser engine"
+# row while every run died with "Executable doesn't exist at
+# .../chromium_headless_shell-1228/.../chrome-headless-shell".
+
+def test_a_missing_headless_shell_is_not_a_green_row(tmp_path, monkeypatch):
+    from cvsender import health
+
+    chromium = tmp_path / "chromium-1228" / "chrome-mac" / "Chromium"
+    chromium.parent.mkdir(parents=True)
+    chromium.write_text("")                       # Chromium is there…
+    # …and the headless shell, which is what a headless run launches, is not.
+
+    monkeypatch.setattr("playwright.sync_api.sync_playwright",
+                        lambda: _fake_playwright(chromium))
+    row = health.browser_engine()
+    assert row["state"] == "fail"
+    assert "headless shell" in row["detail"]
+    assert "playwright install chromium" in row["fix"]
+
+
+def test_both_binaries_present_is_green(tmp_path, monkeypatch):
+    from cvsender import health
+
+    chromium = tmp_path / "chromium-1228" / "chrome-mac" / "Chromium"
+    chromium.parent.mkdir(parents=True)
+    chromium.write_text("")
+    shell = tmp_path / "chromium_headless_shell-1228" / "mac-arm64" / "chrome-headless-shell"
+    shell.parent.mkdir(parents=True)
+    shell.write_text("")
+
+    monkeypatch.setattr("playwright.sync_api.sync_playwright",
+                        lambda: _fake_playwright(chromium))
+    row = health.browser_engine()
+    assert row["state"] == "ok" and row["detail"] == "chromium-1228"

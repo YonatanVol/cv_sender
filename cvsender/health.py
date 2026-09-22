@@ -27,20 +27,52 @@ def _row(name: str, state: str, detail: str, fix: str = "") -> dict:
 
 
 def browser_engine() -> dict:
-    """The macOS 27 update deleted ~/Library/Caches/ms-playwright entirely."""
+    """Both binaries, because every run here is headless.
+
+    Caches get cleaned — the macOS 27 update took ~/Library/Caches/ms-playwright
+    with it, and on 2026-09-22 it went again. Checking only
+    `chromium.executable_path` reported a green row while the headless shell was
+    missing and every run died with "Executable doesn't exist": a false green
+    that costs a whole batch. Playwright launches the shell for headless work, so
+    the check has to see the file that actually runs.
+    """
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
             path = pw.chromium.executable_path
-        if path and Path(path).exists():
-            ver = next((part for part in Path(path).parts
-                        if part.startswith("chromium")), Path(path).parent.name)
-            return _row("browser engine", OK, ver)
-        return _row("browser engine", FAIL, "Chromium is missing",
-                    "./.venv/bin/python -m playwright install chromium")
     except Exception as e:
-        return _row("browser engine", FAIL, f"{type(e).__name__}: {e}"[:120],
-                    "./.venv/bin/python -m playwright install chromium")
+        return _row("browser engine", FAIL, f"{type(e).__name__}: {e}"[:120], INSTALL)
+    if not path or not Path(path).exists():
+        return _row("browser engine", FAIL, "Chromium is missing", INSTALL)
+    ver = next((part for part in Path(path).parts
+                if part.startswith("chromium")), Path(path).parent.name)
+    shell = headless_shell(Path(path))
+    if shell is None:
+        return _row("browser engine", FAIL,
+                    "the headless shell is missing — every run fails to launch",
+                    INSTALL)
+    return _row("browser engine", OK, ver)
+
+
+INSTALL = "./.venv/bin/python -m playwright install chromium"
+
+
+def headless_shell(chromium_exe: Path) -> Path | None:
+    """The chrome-headless-shell binary beside this Chromium, or None.
+
+    It lives in a sibling of the chromium-<rev> directory, named
+    chromium_headless_shell-<rev>; the executable inside is named per platform,
+    so it is found rather than spelled out.
+    """
+    root = next((p for p in chromium_exe.parents
+                 if p.name.startswith("chromium-")), None)
+    if root is None:
+        return None
+    shell_dir = root.parent / root.name.replace("chromium-", "chromium_headless_shell-")
+    if not shell_dir.is_dir():
+        return None
+    return next((f for f in shell_dir.rglob("chrome-headless-shell")
+                 if f.is_file()), None)
 
 
 def linkedin_session() -> dict:
