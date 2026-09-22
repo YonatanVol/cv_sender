@@ -20,7 +20,7 @@ from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, cloud, config, cv as cvmod, health, scheduler
+from . import auth, cloud, config, cv as cvmod, health, home, scheduler
 from .core.run_manager import manager
 from .db import store
 from .db.migrations import migrate
@@ -287,7 +287,9 @@ def assist_page():
 
 @app.get("/api/profile")
 def get_profile():
-    return JSONResponse(store.get_profile() or {})
+    out = dict(store.get_profile() or {})
+    out["location_north"] = store.get_setting("home.base_north") or ""
+    return JSONResponse(out)
 
 
 @app.put("/api/profile")
@@ -308,8 +310,15 @@ async def put_profile(request: Request):
         "work_authorized_il": 1 if body.get("work_authorized_il", True) else 0,
     }
     store.save_profile(data)
+    # The second address. Yonatan lives in Zichron Ya'akov as well as Tel Aviv,
+    # so a northern posting gets the near one; blank turns that off and every
+    # application uses the address above.
+    if "location_north" in body:
+        store.set_setting("home.base_north", (body.get("location_north") or "").strip())
     _cloud_bg(cloud.push_profile)
-    return JSONResponse(store.get_profile())
+    out = dict(store.get_profile() or {})
+    out["location_north"] = store.get_setting("home.base_north") or ""
+    return JSONResponse(out)
 
 
 @app.post("/api/cv")

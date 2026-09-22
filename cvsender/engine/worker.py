@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 
-from .. import config, cv_tailor
+from .. import config, cv_tailor, home
 from ..channels.base import (Job, READY, NEEDS_INPUT, FAILED, SKIPPED, SENT,
                              SENT_UNVERIFIED, SendHandle)
 from ..channels.registry import build_adapters
@@ -199,8 +199,12 @@ async def _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path,
             item_cv, variant = cv_tailor.cv_for(it.get("title") or "",
                                                 job.description or "")
             item_cv = item_cv or cv_path
+            # And the address that fits it. Yonatan lives in Zichron Ya'akov as
+            # well as Tel Aviv; a Haifa employer reading "Tel Aviv" sees a
+            # commute nobody makes. Both are true, so the near one goes in.
+            item_profile = home.profile_for(job.location or "", profile)
             try:
-                res = await adapter.prepare(ctx, job, profile, item_cv, cancel)
+                res = await adapter.prepare(ctx, job, item_profile, item_cv, cancel)
             except Cancelled:
                 store.transition_item(it["id"], ["preparing"], "queued")
                 raise
@@ -208,7 +212,7 @@ async def _prepare_loop(run_id, ctx, adapters, cancel, profile, cv_path,
                 res = None
                 _emit(run_id, "item.error", str(e)[:160], item_id=it["id"],
                       level="error")
-            _apply_prepare_result(run_id, it, res, item_cv, profile, variant)
+            _apply_prepare_result(run_id, it, res, item_cv, item_profile, variant)
             await cancel.sleep(config.PREPARE_DELAY_S)
 
     n = max(1, int(concurrency))
@@ -270,7 +274,8 @@ async def run_takeover(item_id: int, cancel) -> None:
     it = store.get_item(item_id)
     if not it:
         return
-    profile = store.get_profile() or {}
+    profile = home.profile_for(it.get("location") or "",
+                               store.get_profile() or {})
     cv_path = profile.get("cv_path") or ""
     run_id = it["run_id"]
 

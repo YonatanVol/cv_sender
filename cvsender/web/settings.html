@@ -62,6 +62,9 @@
     <label>Email</label><input id="email" type="email" autocomplete="email">
     <label>Phone</label><input id="phone" type="tel" autocomplete="tel">
     <label>Location</label><input id="location">
+    <label>Address for jobs in the north
+      <span style="color:var(--ink-3, var(--mut))">— Haifa, the Carmel coast, the Galilee</span></label>
+    <input id="location_north" placeholder="Zichron Ya'akov, Israel — empty means always use the address above">
     <label>LinkedIn URL</label><input id="linkedin" type="url" inputmode="url">
     <label>GitHub URL</label><input id="github" type="url" inputmode="url">
     <button id="saveProfile">Save profile</button>
@@ -149,7 +152,7 @@ function showCv(p){
 async function load(){
   const p=await api('GET','/api/profile');
   showCv(p);
-  for(const k of ['full_name','email','phone','location','linkedin','github'])
+  for(const k of ['full_name','email','phone','location','linkedin','github','location_north'])
     $(k).value=p[k]||'';
   if(!$('location').value) $('location').value='Israel';
   const s=await api('GET','/api/settings');
@@ -185,10 +188,10 @@ $('cvFile').onchange=async e=>{
 $('saveProfile').onclick=async()=>{
   try{
     const body={};
-    for(const k of ['full_name','email','phone','location','linkedin','github'])
+    for(const k of ['full_name','email','phone','location','linkedin','github','location_north'])
       body[k]=$(k).value;
     await api('PUT','/api/profile',body);
-    toast('Profile saved ✓');
+    toast('Profile saved');
   }catch(e){toast(e.message);}
 };
 $('saveSettings').onclick=async()=>{
