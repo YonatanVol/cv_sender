@@ -88,12 +88,22 @@ ISRAEL_HINTS_EN = [
     "rehovot", "yokneam", "caesarea", "kiryat", "kfar saba", "rosh haayin",
     "bnei brak", "hod hasharon", "or yehuda", "rishon", "nes ziona", "modiin",
     "lod", "airport city", "yavne", "givatayim", "holon", "bat yam",
+    # The north, reachable from Zichron Ya'akov (2026-09-22). A board that
+    # gives the city without the country — "Hadera", not "Hadera, Israel" —
+    # used to fail the geography gate outright and be dropped.
+    "matam", "zichron", "zikhron", "binyamina", "pardes hanna", "hadera",
+    "or akiva", "atlit", "nesher", "tirat carmel", "migdal haemek",
+    "migdal ha'emek", "karmiel", "carmiel", "afula", "nahariya", "akko",
+    "acre", "nazareth", "tiberias", "shefayim", "hof hacarmel",
 ]
 ISRAEL_HINTS_HE = [
     "ישראל", "תל אביב", "תל-אביב", "הרצליה", "חיפה", "ירושלים", "רמת גן",
     "פתח תקווה", "פתח תקוה", "רעננה", "נתניה", "באר שבע", "רחובות", "יקנעם",
     "כפר סבא", "ראש העין", "בני ברק", "הוד השרון", "ראשון לציון", "נס ציונה",
     "קיסריה", "מודיעין", "יבנה", "גבעתיים", "חולון", "בת ים", "לוד",
+    "מת\"ם", "מת״ם", "זכרון יעקב", "זיכרון יעקב", "בנימינה", "פרדס חנה",
+    "חדרה", "אור עקיבא", "עתלית", "נשר", "טירת כרמל", "מגדל העמק",
+    "כרמיאל", "עפולה", "נהריה", "עכו", "נצרת", "טבריה", "קריית", "קרית",
 ]
 
 REMOTE_HINTS = ["remote", "מרחוק", "היברידי", "hybrid", "work from home", "wfh"]

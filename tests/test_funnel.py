@@ -1,4 +1,6 @@
 """The funnel is where v1 died (5,629 -> 11). These lock in the fixes."""
+import pytest
+
 from cvsender.channels.base import Job
 from cvsender.funnel.scoring import score_job, min_years_required
 
@@ -228,3 +230,24 @@ def test_strict_means_only_clear_junior_roles():
 def test_leadership_titles_are_not_junior_roles(title):
     v = score_job(J(title, desc="python c++ linux"))
     assert v.keep is False, v.explain()
+
+
+# --------------------------- the north counts too ---------------------------
+# Yonatan lives in Zichron Ya'akov as well as Tel Aviv (2026-09-22), so the
+# Haifa bay and the coast north of Hadera are commutable. A board that gives
+# only the city name used to fail the geography gate and drop the job.
+
+@pytest.mark.parametrize("place", [
+    "Hadera", "Zichron Ya'akov", "Binyamina", "Yokneam", "Nesher",
+    "Matam, Haifa", "Migdal HaEmek", "Karmiel", "חדרה", "זכרון יעקב",
+    "מגדל העמק", "נשר",
+])
+def test_northern_cities_pass_the_geography_gate(place):
+    v = score_job(J("Junior Software Engineer", location=place), mode="israel_only")
+    assert v.keep, f"{place} was dropped as outside Israel"
+    assert any(c.label == "in Israel" for c in v.contributions)
+
+
+def test_a_foreign_city_is_still_dropped():
+    v = score_job(J("Junior Software Engineer", location="Hamburg"), mode="israel_only")
+    assert not v.keep and v.stage == "geography"
