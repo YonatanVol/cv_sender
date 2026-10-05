@@ -1,6 +1,6 @@
 # Blockers
 
-_Last update: 22 September 2026, 02:20._
+_Last update: 5 October 2026._
 
 | # | Blocker | Owner | Status | Detail |
 |---|---|---|---|---|
@@ -15,3 +15,6 @@ _Last update: 22 September 2026, 02:20._
 | 9 | Feedback labels on cards | Claude Code | NOT STARTED | good fit / wrong profession / too senior as buttons feeding the score. |
 | 10 | A manual-QA role passed the filter | Claude Code | OPEN | "בודק/ת תוכנה" was sent on 22 Sep. Manual QA without development deserves the same gate the non-software titles already have. |
 | 11 | One application recorded its company as "LinkedIn" | Claude Code | OPEN | The card's employer name fell back when the subtitle was missing, so the tracker row is unhelpful. Cosmetic, but it is in the record of a real application. |
+| 12 | LinkedIn rebuilds the apply form every week or two | External | MITIGATED | Three redesigns between 14 Sep and 5 Oct. The reader is now anchored on HTML semantics (native dialog, ARIA radios, native validity) rather than class names, and a step it cannot read keeps a screenshot and says so. The next redesign will show up as "stuck on a step it cannot read", not as silence. |
+| 13 | Greenhouse "How did you hear about this job?" choices read as separate questions | Claude Code | OPEN | "Glassdoor", "Careers Website", "Twilio Blog" each appear on `/answers`. Cosmetic on the page, but it inflates the question count. |
+

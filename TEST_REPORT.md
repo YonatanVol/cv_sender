@@ -308,3 +308,44 @@ score badges with bands, real health rows, the funnel, the phone link
 found by looking: the CV role-version list was only ever loaded from inside the
 "Run now" click handler, so it always showed "…".
 
+## 2026-10-05 — Hourly scans, a dashboard, and LinkedIn's third redesign
+
+| What | Source | Result |
+|---|---|---|
+| Test suite | `pytest tests/ -q` | **379 passed** |
+| Sent today | `applications`, local date | 4, each with DOM evidence |
+| Sent all time | `applications` | 49 |
+| Runs since 22 Sep before today | `runs` | 10 daily stagings, all `dry`, channels = boards only — 0 sent |
+
+### Why nothing was sent for 13 days
+`scheduler.channels()` returned `run.channels` or, when unset, `ATS`
+(greenhouse, lever, ashby, comeet). The setting was never saved, so LinkedIn was
+never searched. Ten runs produced 0–1 ready a day, all on boards that stop at a
+CAPTCHA or Greenhouse's emailed code.
+
+### The form, before and after (linkedin.com/jobs/view/4472547501)
+
+```
+before   step 0: 0 fields   (page.query_selector_all("[id*='easyApplyFormElement']") -> 0)
+         first scan: 23 of 28 "too many steps", filled=[], screenshot=None
+after    step 0: 3 fields   Email address · Phone country code · Mobile phone number
+         step 2: 3 fields   How many years of work experience do you have with C++? / C / Linux
+```
+
+Yes/no questions (jobs/view/4473231209): `div[role=radio][aria-label="Are you
+currently a student?"]`, native input 0×0. After: "student: yes" and "BSc: no"
+filled from saved answers, the one new question returned.
+
+Re-reading the 30 postings from the first scan: 29 return their real questions,
+1 borderline.
+
+### The trap caught before it shipped
+Native validity also marks a *fresh* step's empty required fields invalid.
+Treating that as "refused" stops every multi-step form at the first question we
+could have answered. `test_a_new_step_we_can_answer_is_filled_not_abandoned`
+fails with the same-step check removed and passes with it.
+
+### Browser check
+`/` (dashboard) at 1280px and 375px: live scan banner with progress, counters
+(2×2 on the phone), ready list, sent today, waiting on you.
+

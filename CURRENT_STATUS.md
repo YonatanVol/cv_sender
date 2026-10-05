@@ -1,117 +1,83 @@
 # CV Sender — current status
 
-_Last update: 22 September 2026, 02:20._
+_Last update: 5 October 2026, 19:45._
 
-## Current goal
-A daily loop you can trust: fresh jobs, honest scores, one screen that says what
-to do — and applications that actually finish.
+## How it runs now
+**The machine scans every hour; Yonatan sends.** That is the design he asked for
+on 5 October: "runs every hour, manual by me".
 
-## Today in one line
-**10 applications sent**, each with DOM confirmation evidence and a CV matched to
-the role. Before today the tool had never sent more than one in a sitting.
+- **Scanning** — every hour, 07:00–23:00, inside the server. LinkedIn first, then
+  Greenhouse, Lever, Ashby and Comeet. Each new posting is scored, filled with the
+  CV variant that fits the role and the address that fits the location, and
+  stopped one click before Submit. Nothing is sent by a scan.
+- **Sending** — the Send button on the dashboard, `http://127.0.0.1:8010/` (on the
+  phone: `http://Yonatans-Macbook-Pro-6.local:8010`). It shows every ready
+  application with the CV and address it will carry; nothing goes out until he
+  presses it. LinkedIn's limit is 15 a day.
+
+## Today
+Four applications, each confirmed by LinkedIn's "Application sent" view:
 
 | Time | Company | Role | CV |
 |---|---|---|---|
-| 00:47 | Zetheta Algorithms | Software Engineer | general |
-| 01:30 | Jobgether | Test Automation Engineer – Cucumber | qa |
-| 01:44 | InfinityLabs R&D | Junior Software Engineer | general |
-| 01:44 | Tesnet Group | בודק/ת תוכנה | general |
-| 01:45 | Speedata.io | Algorithm Engineer | data |
-| 01:46 | MatchPointIT | Security Engineer | general |
-| 02:13 | (LinkedIn) | Developer Relations | general |
-| 02:13 | Way2Deep | Algorithm Engineer | data |
-| 02:14 | Lendbuzz | Backend Engineer | backend |
-| 02:14 | ITC – Intelligent Traffic | Software Engineer | general |
+| 19:09 | CloudTeam.ai | DevOps Engineer (FinOps oriented) | general |
+| 19:09 | QED Science | Full Stack Developer | fullstack |
+| 19:43 | InfinityLabs R&D | DevOps & Cloud Engineer — Entry Level | general |
+| 19:43 | CarGeek | Full Stack Engineer | fullstack |
 
-Four more are filled, reviewed and **waiting on you** to confirm; the LinkedIn
-day cap has 5 sends left.
+49 applications all time.
 
-## What was actually broken, and is now fixed
-
-1. **LinkedIn's apply form was invisible to us.** The SDUI modal has neither
-   `role="dialog"` nor `.jobs-easy-apply-content`, so the control selector matched
-   **zero** elements. Every screening question came back as the contentless
-   `required field flagged`, and 66 postings were parked behind it. Measured on a
-   live posting: 0 controls found → 4.
-2. **A yes/no question was called "Yes".** A radio's own `<label>` is its choice;
-   the question lives in the `<fieldset><legend>`. 13 postings reached the queue
-   as `Answer 1 question: Yes`, and where LinkedIn used GUID ids the options were
-   GUIDs too.
-3. **A busy run signed you out.** `touch_session` waited out its 5s busy timeout
-   against the run's write and returned 500 — one confirm was lost that way, and
-   the send it should have started never happened.
-4. **Startup died on a locked database.** Two starts in a row; the service only
-   came back because launchd retried it.
-
-## Where the product stands
-
-| Question the product must answer | Answer today |
-|---|---|
-| What should I do right now? | `/today` — goal ring, one next action, best jobs with reasons |
-| Which jobs are relevant? | 0–100 with named reasons; leadership and non-software gated |
-| Which jobs are still open? | Verified over HTTP; 0 old postings left unverified |
-| What is working or broken? | `/status` and `python -m cvsender.doctor`, each red row with its fix |
-| Is this getting me interviews? | `/applications` — funnel, stages, follow-ups |
-| Can I use it from my phone? | `http://Yonatans-Macbook-Pro-6.local:8010` on the same Wi-Fi |
+## What was broken
+1. **Nothing was sent for 13 days, and nothing said so.** With no channel list
+   saved, the morning run fell back to Greenhouse, Lever, Ashby and Comeet — the
+   boards that stop almost every application at a CAPTCHA or an emailed code — and
+   never searched LinkedIn, where all 45 earlier applications finished. Every
+   health check was green throughout.
+2. **LinkedIn rebuilt the apply form again** (third time in three weeks). It is
+   now a native `<dialog open>` with hashed class names and React ids, and its
+   yes/no questions are ARIA radios whose real inputs are invisible. The reader
+   saw zero fields: the first scan returned 23 of 28 postings as "too many steps",
+   nothing filled, no screenshot. Now anchored on HTML semantics rather than
+   LinkedIn's names; the same 30 postings come back 29 with their real questions,
+   saved answers filled in automatically.
+3. **Both channels shared one cap with the boards going first**, so a scan that
+   found forty Greenhouse postings left LinkedIn none. LinkedIn goes first now.
 
 ## Numbers right now
 
 | | |
 |---|---|
-| Queue (distinct positions) | 305 |
-| Ready to send | 3 |
-| Fresh this week | 187 |
-| Older than a month | 54 |
-| Old and unverified | 0 |
-| Questions blocking | 149 (blocking 390 postings) |
-| Screening answers saved | 20 |
-| Applications sent today | 10 |
-| Applications sent (all time) | 43 |
-| Tests | 320 green |
-| Health | OK on all checks |
+| Queue | 66 postings, 1 ready |
+| Questions blocking | 62, holding 100 postings |
+| Screening answers saved | 25 |
+| LinkedIn sends left today | 11 of 15 |
+| Next scan | 20:23 |
+| Tests | 379 green |
 
-## Answers saved on your behalf today
+## Answers saved on his behalf today
+From facts in his CV, all editable at `/answers`:
+- Built a back-end API that talks to a database — **yes** (FastAPI over
+  SQLite/Postgres; a booking platform with nine database migrations)
+- Built a TypeScript front-end feature against a back-end API — **yes**
+  (Next.js/React/TypeScript booking platform with Stripe)
+- Background in coding or IT — **yes**
+- Comfortable in a hybrid setting — **yes** (consistent with the saved on-site
+  and commuting answers)
 
-Nineteen questions were answered from facts in your own CV, so the applications
-above could finish. **All of them are editable at `/answers`** — change any one
-and every posting waiting on it is retried.
-
-- Student: **yes** · bachelor's degree held: **no** (B.Sc. CS at HIT, expected 2027)
-- B.Sc./M.Sc. in engineering, exact sciences, or control theory: **no**
-- Graduated from Technion / TAU / BGU / HUJI / Open University: **no** (HIT)
-- English: **professional** (CV: fluent) · lives in Israel: **yes**
-- Automation-development experience: **yes** · Playwright / Selenium / Cypress: **yes**
-- UAV field testing, integration, flight control: **no**
-- Within 20 minutes of Matam, Haifa: **no**
-- On-site work, commuting to the job's location, full-time availability: **yes**
-
-Deliberately **not** answered, because inventing them would be lying on your
-behalf: years of experience with a named technology, salary expectations,
-security-clearance and background-check consents, and the daily commute to Haifa.
-They are the largest remaining block on the queue.
+Deliberately left for him: "Do you have a bachelor's degree … **or equivalent
+hands-on experience**" — with his experience a flat no would undersell him, and
+yes is his call — plus years with a named technology, salary, driver's licence,
+background-check consent and the training-programme commitment.
 
 ## Needs Yonatan
-1. **Answer the top questions at `/answers`.** 149 questions block 390 postings;
-   the years-of-experience ones alone block about thirty.
-2. **Three applications are filled and ready** — sending is your decision.
-3. **Install Tailscale** if you want the phone off Wi-Fi. It needs your password,
-   a system-extension approval and your account, so it is not something I can do.
-4. **Disk.** `df` reports **17 GB free** of 460 GB, not 27. It is enough to work,
-   but it is not much.
+1. **Answer the top questions at `/answers`.** "How many years with C++" alone
+   holds five postings. Each answer unblocks every posting waiting on it.
+2. **Press Send** on the dashboard when something is ready. The one ready now is a
+   Greenhouse posting (Taboola), which will stop at Greenhouse's emailed code.
+3. **Tailscale**, if the phone should work off Wi-Fi.
 
 ## Known and not fixed
-- One application recorded its company as "LinkedIn": the card's employer name
-  fell back when the subtitle was missing.
-- A QA role in the south passed the filter. Manual-QA titles deserve the same
-  gate as the non-software ones.
-- Greenhouse now emails an 8-character code before accepting an application.
-  That is a human check and will not be automated; two applications are parked
-  with exactly that reason.
-- 39 LinkedIn postings have no Easy Apply at all — external apply, so they can
-  only ever be finished by hand from the queue.
-
-## Latest proof
-`2026-09-22 02:20` — 320 tests pass; doctor OK; 10 applications in the
-`applications` table with DOM evidence; `/today`, `/status`, `/applications`,
-`/answers`, `/assist` and `/settings` all checked in a browser against live data.
-Details in `TEST_REPORT.md`.
+- On Greenhouse, the choices of "How did you hear about this job?" ("Glassdoor",
+  "Careers Website", …) are read as separate questions on `/answers`.
+- The LinkedIn resume step lists 44 uploaded CVs — every variant ever sent. It
+  works, but the list will keep growing.

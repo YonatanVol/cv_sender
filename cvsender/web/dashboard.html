@@ -31,6 +31,8 @@
 
   /* the big number row ---------------------------------------------------- */
   .tiles .tile b.ok { color: var(--ok); }
+  .tiles { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
 
   /* ready list ------------------------------------------------------------ */
   .rhead { display: flex; align-items: baseline; justify-content: space-between;
