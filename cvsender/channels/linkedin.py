@@ -167,21 +167,81 @@ _FIELD_JS = r"""el => {
   };
 }"""
 
-# 2026-09-22: the SDUI apply modal has neither role="dialog" nor
-# .jobs-easy-apply-content, so the two legacy selectors matched ZERO controls and
-# every screening question came back as the useless "required field flagged".
-# The form elements carry stable ids (…easyApplyFormElement…) inside
-# .fb-dash-form-element wrappers; match those too, and keep the old selectors for
-# the modal LinkedIn still serves to some accounts.
-_CONTROLS = ("div[role='dialog'] input, div[role='dialog'] select, "
-             "div[role='dialog'] textarea, div.jobs-easy-apply-content input, "
-             "div.jobs-easy-apply-content select, div.jobs-easy-apply-content textarea, "
+# What the apply form is anchored on, and why it keeps moving:
+#   2026-09-14  div[role="dialog"] / .jobs-easy-apply-content
+#   2026-09-22  SDUI modal: ids containing "easyApplyFormElement" inside
+#               .fb-dash-form-element wrappers
+#   2026-10-05  a native <dialog open> with hashed class names ("ckymxw …")
+#               and React ids ("_r_7_") — none of the above match anything
+# Each change silently zeroed the fields we could see. The native dialog is the
+# one anchor that is semantic rather than a class name, so it comes first; the
+# older hooks stay for accounts still served the previous markup.
+_CONTROLS = ("dialog[open] input, dialog[open] select, dialog[open] textarea, "
+             "[role='dialog'] input, [role='dialog'] select, [role='dialog'] textarea, "
+             "div.jobs-easy-apply-content input, div.jobs-easy-apply-content select, "
+             "div.jobs-easy-apply-content textarea, "
              "[id*='easyApplyFormElement'], "
              ".fb-dash-form-element input, .fb-dash-form-element select, "
              ".fb-dash-form-element textarea, "
              ".jobs-easy-apply-form-section__grouping input, "
              ".jobs-easy-apply-form-section__grouping select, "
              ".jobs-easy-apply-form-section__grouping textarea")
+
+# A step LinkedIn refused. On 2026-10-05 the red "Invalid input" carried no
+# aria-invalid, no role=alert and no stable class — but the field is `required`
+# and the browser's own constraint validation says it is not satisfied. That
+# signal belongs to HTML, not to LinkedIn, so no redesign can rename it. Walks
+# open shadow roots, since earlier markup lived inside one.
+_REFUSED_JS = r"""() => {
+  const roots = [document];
+  for (let i = 0; i < roots.length; i++)
+    for (const el of roots[i].querySelectorAll('*')) if (el.shadowRoot) roots.push(el.shadowRoot);
+  for (const r of roots) {
+    for (const d of r.querySelectorAll("dialog[open], [role='dialog']")) {
+      for (const c of d.querySelectorAll('input, select, textarea')) {
+        const box = c.getBoundingClientRect();
+        if (!box.width || !box.height || c.type === 'hidden' || c.disabled) continue;
+        if (c.validity && !c.validity.valid) return true;
+        if (c.getAttribute('aria-invalid') === 'true') return true;
+      }
+      if (d.querySelector("[role='alert'], .artdeco-inline-feedback--error")) return true;
+      for (const g of d.querySelectorAll("[role='radiogroup']")) {
+        const err = g.getAttribute('aria-describedby');
+        const msg = err && (r.getElementById ? r.getElementById(err) : document.getElementById(err));
+        if (msg && (msg.innerText || '').trim()) return true;
+      }
+    }
+  }
+  return false;
+}"""
+
+# 2026-10-05: a yes/no question is the ARIA radio pattern. Each choice is a
+# visible <div role="radio" aria-checked> whose aria-label is the QUESTION and
+# whose text is the choice; the native <input type=radio> inside is 0x0 and
+# transparent, so a visibility filter drops it and the question vanishes. The
+# group is <fieldset role="radiogroup"> with no <legend>; a preceding <p>
+# carries the question with a trailing "*" when it is required.
+_ARIA_RADIOS = "dialog[open] [role='radio'], [role='dialog'] [role='radio']"
+_ARIA_RADIO_JS = r"""el => {
+  const clean = t => (t || '').replace(/\s+/g, ' ').trim();
+  const grp = el.closest("[role='radiogroup'], fieldset");
+  let qtext = '', n = grp ? grp.previousElementSibling : null;
+  while (n && !qtext) { qtext = clean(n.innerText); n = n.previousElementSibling; }
+  if (!qtext && grp && grp.parentElement)
+    qtext = clean((grp.parentElement.innerText || '').split('\n')[0]);
+  const own = clean(el.innerText);
+  let q = clean(el.getAttribute('aria-label'));
+  if (!q || q === own) q = qtext;
+  const inner = el.querySelector("input[type='radio']");
+  return {
+    question: q.replace(/\*+\s*$/, '').trim(),
+    own: own,
+    checked: el.getAttribute('aria-checked') === 'true',
+    required: /\*\s*$/.test(qtext) || (grp && grp.getAttribute('aria-required') === 'true')
+              || !!(inner && inner.required),
+    key: (inner && inner.name) || (grp && grp.getAttribute('aria-describedby')) || q,
+  };
+}"""
 
 # A select showing its own placeholder is unanswered, not answered.
 _PLACEHOLDERS = ("select an option", "choose an option", "בחר אפשרות",
@@ -391,10 +451,15 @@ class LinkedInChannel:
             if not nxt:
                 return PrepareResult(state=NEEDS_INPUT, filled=filled, answers=answers,
                                      reason="stuck (no next/submit)")
+            before = await self._step_key(page)
             if not await self._click(nxt):
                 break
             await page.wait_for_timeout(1500)
-            if await self._error_flagged(page):
+            # Refused means LinkedIn kept us on the same step. A new step with
+            # empty required fields is also "invalid" to the browser, and
+            # stopping there would abandon forms we can fill — the next loop
+            # turn fills it.
+            if await self._step_key(page) == before and await self._error_flagged(page):
                 asked: list[Question] = []
                 await self._fill_step(page, profile, filled, asked)
                 shot = await self._capture(page)
@@ -405,8 +470,13 @@ class LinkedInChannel:
                                          else f"{len(asked)} questions") + ": "
                             + "; ".join(q.label[:40] for q in asked[:2]))
                            if asked else "required field flagged")
+        # Eight steps without reaching Submit means a step we cannot read or
+        # cannot pass. Keep the picture: on 2026-10-05 this returned with no
+        # screenshot 23 times, and the cause — a redesigned form — was invisible.
+        shot = await self._capture(page)
         return PrepareResult(state=NEEDS_INPUT, filled=filled, answers=answers,
-                             reason="too many steps")
+                             screenshot=shot,
+                             reason="stuck on a step it cannot read — see the screenshot")
 
     async def _read_fields(self, page) -> list[dict]:
         """Every visible control in the apply dialog, with its visible label."""
@@ -448,6 +518,28 @@ class LinkedInChannel:
                 value = ""                 # "Select an option" is not an answer
             out.append({**f, "kind": kind,
                         "value": ("Yes" if f["checked"] else "") if kind == "checkbox" else value})
+        try:
+            aria = await page.query_selector_all(_ARIA_RADIOS)
+        except Exception:
+            aria = []
+        for el in aria:
+            try:
+                if not await el.is_visible():
+                    continue
+                r = await el.evaluate(_ARIA_RADIO_JS)
+            except Exception:
+                continue
+            if not r.get("question") or not r.get("own"):
+                continue
+            key = "aria:" + (r["key"] or r["question"])
+            g = radios.setdefault(key, {"kind": "radio", "label": r["question"],
+                                        "name": key, "options": [], "required": False,
+                                        "value": "", "els": [], "el": el})
+            g["required"] = g["required"] or r["required"]
+            g["options"].append(r["own"])
+            g["els"].append((r["own"], el))
+            if r["checked"]:
+                g["value"] = r["own"]
         return out + list(radios.values())
 
     async def _fill_step(self, page, profile, filled, asked=None):
@@ -566,9 +658,24 @@ class LinkedInChannel:
                     continue
         return None
 
-    async def _error_flagged(self, page) -> bool:
+    async def _step_key(self, page) -> str:
+        """Which step the form is on: the labels of its visible controls.
+
+        Not the dialog's text — that changes when LinkedIn adds "Invalid input"
+        under a field, which is exactly when we need to see the same step.
+        """
         try:
-            return bool(await page.query_selector(".artdeco-inline-feedback--error"))
+            labels = [f.get("label") or "" for f in await self._read_fields(page)]
+            return "|".join(labels)
+        except Exception:
+            return ""
+
+    async def _error_flagged(self, page) -> bool:
+        """LinkedIn refused the step. Read from native form validity, which
+        survives a redesign; the old class-only check went blind on 2026-10-05
+        and the walker clicked Next eight times into a rejected form."""
+        try:
+            return bool(await page.evaluate(_REFUSED_JS))
         except Exception:
             return False
 
@@ -582,7 +689,8 @@ class LinkedInChannel:
                   "המועמדות שלך נשלחה", "המועמדות נשלחה"):
             try:
                 el = await page.query_selector(
-                    f"div[role='dialog'] :text('{t}'), h2:has-text('{t}'), h3:has-text('{t}')")
+                    f"dialog[open] :text('{t}'), [role='dialog'] :text('{t}'), "
+                    f"h2:has-text('{t}'), h3:has-text('{t}')")
                 if el and await el.is_visible():
                     return True
             except Exception:

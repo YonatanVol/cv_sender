@@ -167,3 +167,162 @@ def test_field_reader_asks_the_fieldset_before_the_choice_label():
     radio_branch = _FIELD_JS.index('=== "radio"')
     for_branch = _FIELD_JS.index('label[for=', radio_branch)
     assert radio_branch < for_branch          # group wins for a radio
+
+
+# ------------------- 2026-10-05: the native <dialog> form -------------------
+# LinkedIn moved the apply form into <dialog open> with hashed class names and
+# React ids ("_r_7_"). Every hook we had matched nothing: 23 of 28 postings
+# came back "too many steps", with nothing filled and no screenshot.
+
+class DialogPage(SduiPage):
+    """Answers only selectors anchored on the native dialog."""
+    HOOKS = ("dialog[open]",)
+
+
+def test_controls_inside_a_native_dialog_are_found():
+    fields = run(LinkedInChannel()._read_fields(DialogPage([
+        _field(label="How many years of work experience do you have with C++?",
+               tag="INPUT", type="text", value="", options=[])])))
+    assert [f["label"] for f in fields] == [
+        "How many years of work experience do you have with C++?"]
+
+
+class Btn:
+    def __init__(self, page, text): self.page, self.text = page, text
+    async def is_visible(self): return True
+    async def is_enabled(self): return True
+    async def scroll_into_view_if_needed(self, timeout=0): pass
+    async def click(self, timeout=0): self.page.press(self.text)
+
+
+class StepEl(SduiEl):
+    def __init__(self, field, page): super().__init__(field); self.page = page
+    async def fill(self, v): self.field["value"] = v
+    async def select_option(self, **kw): self.field["value"] = next(iter(kw.values()))
+
+
+class FormPage:
+    """A multi-step form that refuses Next while a required field is empty —
+    the way the real one behaves, judged by native validity."""
+
+    def __init__(self, steps):
+        self.steps, self.i, self.submitted = steps, 0, False
+
+    def current(self): return self.steps[self.i]
+
+    def press(self, text):
+        if any(f["required"] and not f["value"] for f in self.current()):
+            return                                   # refused: stay on this step
+        if self.i < len(self.steps) - 1:
+            self.i += 1
+
+    async def query_selector_all(self, sel):
+        if "dialog[open]" not in sel:
+            return []
+        return [StepEl(f, self) for f in self.current()]
+
+    async def query_selector(self, sel):
+        last = self.i == len(self.steps) - 1
+        if last and "Submit application" in sel:
+            return Btn(self, "submit")
+        if not last and ("'Next'" in sel or "Next" in sel):
+            return Btn(self, "next")
+        return None
+
+    async def evaluate(self, js):                    # _REFUSED_JS
+        return any(f["required"] and not f["value"] for f in self.current())
+
+    async def wait_for_timeout(self, ms): pass
+    async def screenshot(self, **kw): pass
+
+
+class NoCancel:
+    def check(self): pass
+
+
+def _q(label, value="", kind_tag=("INPUT", "text"), options=()):
+    return _field(label=label, tag=kind_tag[0], type=kind_tag[1], value=value,
+                  options=list(options), required=True)
+
+
+def test_a_new_step_we_can_answer_is_filled_not_abandoned(tmp_path, monkeypatch):
+    """The trap: a fresh step's empty required fields are 'invalid' to the
+    browser too. Treating that as refused would stop at every step."""
+    import cvsender.config as config
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
+    from cvsender.db.migrations import migrate
+    from cvsender.db import store
+    migrate()
+    store.learn_answer("Are you currently a student?", "Yes")
+
+    page = FormPage([
+        [_q("Mobile phone number", value="528701670")],
+        [_q("Are you currently a student?", kind_tag=("SELECT", "select-one"),
+            options=["Yes", "No"])],
+        [],                                           # review
+    ])
+    res = run(LinkedInChannel()._walk(page, {}, "", NoCancel(), submit=False))
+    assert res.state == "ready", res.reason
+    assert page.steps[1][0]["value"] == "Yes"
+
+
+def test_a_refused_step_comes_back_as_its_questions(tmp_path, monkeypatch):
+    import cvsender.config as config
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
+    from cvsender.db.migrations import migrate
+    migrate()
+    page = FormPage([
+        [_q("Mobile phone number", value="528701670")],
+        [_q("How many years of work experience do you have with C++?")],
+        [],
+    ])
+    res = run(LinkedInChannel()._walk(page, {}, "", NoCancel(), submit=False))
+    assert res.state == "needs_input"
+    assert [q.label for q in res.questions] == [
+        "How many years of work experience do you have with C++?"]
+    assert "too many steps" not in (res.reason or "")
+
+
+# ---------------- 2026-10-05: yes/no is the ARIA radio pattern --------------
+# <fieldset role="radiogroup"> with no legend; each choice is a visible
+# <div role="radio" aria-checked aria-label="<the question>">Yes</div>; the
+# native input inside is 0x0. Read by visibility alone, the question vanished.
+
+class AriaRadio:
+    def __init__(self, info): self.info = info
+    async def is_visible(self): return True
+    async def evaluate(self, js): return dict(self.info)
+
+
+class AriaPage:
+    def __init__(self, radios): self.radios = radios
+    async def query_selector_all(self, sel):
+        if "[role='radio']" in sel:
+            return [AriaRadio(r) for r in self.radios]
+        return []                         # the native inputs are invisible
+
+
+def _choice(own, checked=False, q="Are you currently a student?", key="radio-group-_r_1p_"):
+    return {"question": q, "own": own, "checked": checked, "required": True, "key": key}
+
+
+def test_an_aria_radio_group_reads_as_one_question_with_its_choices():
+    fields = run(LinkedInChannel()._read_fields(AriaPage([_choice("Yes"), _choice("No")])))
+    assert len(fields) == 1
+    g = fields[0]
+    assert g["kind"] == "radio" and g["label"] == "Are you currently a student?"
+    assert g["options"] == ["Yes", "No"] and g["required"] and g["value"] == ""
+
+
+def test_an_answered_aria_group_carries_its_choice():
+    fields = run(LinkedInChannel()._read_fields(AriaPage([_choice("Yes"), _choice("No", True)])))
+    assert fields[0]["value"] == "No"
+
+
+def test_two_aria_groups_stay_two_questions():
+    fields = run(LinkedInChannel()._read_fields(AriaPage([
+        _choice("Yes"), _choice("No"),
+        _choice("Yes", q="Do you hold a BSc?", key="radio-group-_r_2a_"),
+        _choice("No", q="Do you hold a BSc?", key="radio-group-_r_2a_")])))
+    assert sorted(f["label"] for f in fields) == ["Are you currently a student?",
+                                                   "Do you hold a BSc?"]
