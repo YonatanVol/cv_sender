@@ -46,13 +46,17 @@ async def run_prepare(run_id: int, options: dict, cancel) -> None:
     remaining = cap
 
     try:
-        if enabled & ATS_CHANNELS:
+        # LinkedIn first. Both share one cap, and the boards ran first, so a
+        # scan that found 40 Greenhouse postings — which nearly all stop at a
+        # CAPTCHA or an emailed code — left LinkedIn, the channel that actually
+        # sends, with nothing.
+        if "linkedin" in enabled:
+            remaining = await _prepare_linkedin(run_id, options, cancel, remaining,
+                                                profile, cv_path)
+        if enabled & ATS_CHANNELS and remaining > 0:
             remaining = await _prepare_ats(run_id, options, cancel, remaining,
                                            profile, cv_path,
                                            list(enabled & ATS_CHANNELS))
-        if "linkedin" in enabled and remaining > 0:
-            await _prepare_linkedin(run_id, options, cancel, remaining, profile,
-                                    cv_path)
     except Cancelled:
         raise
 
@@ -242,9 +246,10 @@ async def _prepare_linkedin(run_id, options, cancel, cap, profile, cv_path):
     if not await li.logged_in(page):
         _emit(run_id, "run.error",
               "LinkedIn not logged in — log in once, then re-run.", level="warn")
-        return
+        return cap
     _emit(run_id, "phase", "Searching LinkedIn Easy Apply roles…")
-    jobs = await li.discover(page, geography)
+    jobs = await li.discover(page, geography,
+                             pages=int(options.get("linkedin_pages", 2)))
     kept = []
     for job in jobs:
         v = score_job(job, mode=geography, strictness=strictness)
@@ -260,8 +265,9 @@ async def _prepare_linkedin(run_id, options, cancel, cap, profile, cv_path):
         kept.append({"job": job, "score": v.score, "signals": v.signals,
                      "verdict": v})
     kept.sort(key=lambda k: k["score"], reverse=True)
-    _add_items(run_id, kept[:cap])
+    added = _add_items(run_id, kept[:cap])
     await _prepare_loop(run_id, ctx, {"linkedin": li}, cancel, profile, cv_path)
+    return max(0, cap - added)
 
 
 async def run_takeover(item_id: int, cancel) -> None:

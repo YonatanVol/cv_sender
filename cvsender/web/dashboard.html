@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dashboard — CV Sender</title>
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="stylesheet" href="/static/shared.css">
+<meta name="theme-color" content="#0b0d12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+  /* scan strip ------------------------------------------------------------ */
+  .scan { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .pulse {
+    width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto;
+    background: var(--dim);
+  }
+  .pulse.on { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-soft); }
+  .pulse.live { background: var(--acc); box-shadow: 0 0 0 0 var(--acc-soft);
+                animation: ping 1.6s ease-out infinite; }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--acc) 55%, transparent); }
+                    100% { box-shadow: 0 0 0 12px transparent; } }
+  .scan .what { flex: 1 1 260px; min-width: 0; }
+  .scan .what b { font-size: 16px; font-weight: 650; display: block; }
+  .scan .what span { color: var(--mut); font-size: 13px; }
+  .scan .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .bar { height: 4px; background: var(--surface-2); border-radius: 4px; overflow: hidden;
+         margin-top: 14px; }
+  .bar i { display: block; height: 100%; background: var(--acc); width: 0;
+           transition: width .5s ease; }
+
+  /* the big number row ---------------------------------------------------- */
+  .tiles .tile b.ok { color: var(--ok); }
+
+  /* ready list ------------------------------------------------------------ */
+  .rhead { display: flex; align-items: baseline; justify-content: space-between;
+           gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .rhead h2 { margin: 0; }
+  .pick { display: flex; gap: 13px; align-items: flex-start; padding: 13px 0;
+          border-top: 1px solid var(--line-soft); cursor: pointer; }
+  .list .pick:first-child { border-top: 0; }
+  .pick input { width: 20px; height: 20px; min-height: 0; margin-top: 12px;
+                accent-color: var(--acc); flex: 0 0 auto; padding: 0; }
+  .pick .body { flex: 1; min-width: 0; }
+  .pick .title { font-weight: 600; }
+  .pick .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 7px; }
+  .pick.off { opacity: .5; }
+  .sendbar {
+    position: sticky; bottom: max(12px, env(safe-area-inset-bottom)); z-index: 10;
+    margin-top: 6px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(12px); border: 1px solid var(--line);
+    border-radius: var(--r); padding: 12px 14px; box-shadow: var(--shadow);
+  }
+  .sendbar .note { flex: 1 1 200px; color: var(--mut); font-size: 13px; }
+  .sendbar button { flex: 0 0 auto; min-width: 180px; font-size: 15px; }
+  .why { color: var(--mut); font-size: 12.5px; margin-top: 3px; }
+</style>
+</head>
+<body>
+<header id="hdr"></header>
+<main>
+
+  <section class="card">
+    <div class="scan">
+      <span class="pulse" id="pulse"></span>
+      <div class="what">
+        <b id="scanLine">Loading…</b>
+        <span id="scanSub">&nbsp;</span>
+      </div>
+      <div class="acts">
+        <button class="ghost" id="scanNow">Scan now</button>
+        <button class="quiet" id="toggle">Pause hourly</button>
+      </div>
+    </div>
+    <div class="bar hide" id="bar"><i id="barFill"></i></div>
+  </section>
+
+  <section class="tiles">
+    <div class="tile"><b id="tReady">–</b><span>ready to send</span></div>
+    <div class="tile"><b id="tToday" class="ok">–</b><span>sent today</span></div>
+    <div class="tile"><b id="tCap">–</b><span>LinkedIn left today</span></div>
+    <div class="tile"><b id="tAll">–</b><span>sent all time</span></div>
+  </section>
+
+  <section class="card lead">
+    <div class="rhead">
+      <h2>Ready to send</h2>
+      <button class="quiet" id="allNone" style="min-height:32px;padding:5px 11px;font-size:12px">Select none</button>
+    </div>
+    <p class="sub" style="margin-bottom:6px">Each one is filled, with the CV that fits the
+      role attached, and stopped one click before Submit. Nothing goes out until you
+      press Send.</p>
+    <div class="list" id="ready"><div class="skeleton" style="height:58px"></div></div>
+    <div class="sendbar hide" id="sendbar">
+      <div class="note" id="sendNote"></div>
+      <button id="send">Send</button>
+    </div>
+  </section>
+
+  <section class="card hide" id="todayCard">
+    <h2>Sent today</h2>
+    <div id="today"></div>
+  </section>
+
+  <section class="card">
+    <h2>Waiting on you</h2>
+    <div id="waiting"></div>
+  </section>
+
+</main>
+<div id="toast" class="toast hide"></div>
+<script src="/static/shared.js"></script>
+<script>
+$('hdr').innerHTML = navBar('/dashboard');
+let d = null, picked = new Set(), touched = false, timer = null;
+
+const clock = ts => new Date(ts * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+function inMin(ts) {
+  const m = Math.round((ts * 1000 - Date.now()) / 60000);
+  return m <= 0 ? 'any moment' : m < 60 ? `in ${m} min` : `in ${Math.floor(m / 60)}h ${m % 60}m`;
+}
+function minAgo(ts) {
+  const m = Math.round((Date.now() - ts * 1000) / 60000);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)}h ${m % 60}m ago`;
+}
+
+function renderScan(s) {
+  const run = s.running;
+  $('pulse').className = 'pulse ' + (run ? 'live' : s.enabled ? 'on' : '');
+  $('toggle').textContent = s.enabled ? 'Pause hourly' : 'Resume hourly';
+  $('scanNow').disabled = !!run;
+  const win = `every ${s.every_min === 60 ? 'hour' : s.every_min + ' min'}, ` +
+              `${String(s.window[0]).padStart(2, '0')}:00–${String(s.window[1]).padStart(2, '0')}:00`;
+  if (run) {
+    const c = run.counts || {}, total = Object.values(c).reduce((a, b) => a + b, 0);
+    const done = total - (c.queued || 0) - (c.preparing || 0);
+    $('scanLine').textContent = total
+      ? `Scanning — filled ${done} of ${total} new postings`
+      : 'Scanning — searching LinkedIn and the job boards';
+    $('scanSub').textContent = `started ${minAgo(run.started_ts)} · ${c.ready || 0} ready so far`;
+    $('bar').classList.remove('hide');
+    $('barFill').style.width = total ? `${Math.round(100 * done / total)}%` : '6%';
+  } else {
+    $('bar').classList.add('hide');
+    $('scanLine').textContent = s.enabled
+      ? (s.next_ts ? `Next scan at ${clock(s.next_ts)} — ${inMin(s.next_ts)}` : 'Hourly scanning is on')
+      : 'Hourly scanning is paused';
+    $('scanSub').textContent = (s.last_ts ? `last scan ${minAgo(s.last_ts)}` : 'no scan yet')
+      + ` · ${win} · ${s.channels.join(', ')}`;
+  }
+}
+
+function card(r) {
+  const on = picked.has(r.id);
+  return `<label class="pick${on ? '' : ' off'}" data-id="${r.id}">
+    <input type="checkbox" ${on ? 'checked' : ''} data-id="${r.id}" aria-label="send ${esc(r.company)}">
+    ${scoreBadge(r.score, r.band)}
+    <div class="body">
+      <div class="title">${esc(r.company)} <span class="dim">·</span> ${esc(r.title)}</div>
+      <div class="why">${esc(r.reasons.join(' · ') || r.location)}</div>
+      <div class="tags">
+        <span class="pill acc">CV: ${esc(r.cv)}</span>
+        ${r.address ? `<span class="pill">${esc(r.address)}</span>` : ''}
+        <span class="pill">${esc(r.channel)}</span>
+        ${r.found_min_ago != null ? `<span class="pill">found ${r.found_min_ago < 60 ? r.found_min_ago + ' min' : Math.round(r.found_min_ago / 60) + 'h'} ago</span>` : ''}
+        <a class="plain" style="font-size:12.5px;align-self:center" href="${esc(r.url)}" target="_blank" rel="noopener">posting ↗</a>
+      </div>
+    </div></label>`;
+}
+
+function renderReady() {
+  const list = d.ready;
+  if (!touched) picked = new Set(list.map(r => r.id));
+  else picked = new Set([...picked].filter(id => list.some(r => r.id === id)));
+  $('tReady').textContent = list.length;
+  $('allNone').classList.toggle('hide', !list.length);
+  $('allNone').textContent = picked.size ? 'Select none' : 'Select all';
+  if (!list.length) {
+    $('ready').innerHTML = `<div class="empty"><h3>Nothing ready right now</h3>
+      <p class="sub">${d.scan.running ? 'A scan is running — new ones appear here as they are filled.'
+        : 'The next scan fills more. Or answer the questions below — each answer unblocks every posting waiting on it.'}</p></div>`;
+    $('sendbar').classList.add('hide');
+    return;
+  }
+  $('ready').innerHTML = list.map(card).join('');
+  document.querySelectorAll('.pick input').forEach(el => el.onchange = () => {
+    touched = true;
+    const id = +el.dataset.id;
+    el.checked ? picked.add(id) : picked.delete(id);
+    el.closest('.pick').classList.toggle('off', !el.checked);
+    sendState();
+  });
+  $('sendbar').classList.remove('hide');
+  sendState();
+}
+
+function sendState() {
+  const n = picked.size, linkedin = d.ready.filter(r => picked.has(r.id) && r.channel === 'linkedin').length;
+  const over = Math.max(0, linkedin - d.cap_left);
+  const go = n - over;
+  $('allNone').textContent = n ? 'Select none' : 'Select all';
+  if (d.scan.running) {
+    $('send').disabled = true;
+    $('send').textContent = 'Wait for the scan';
+    $('sendNote').textContent = 'Sending uses the same browser as the scan. It frees up when the scan finishes.';
+    return;
+  }
+  $('send').disabled = !go;
+  $('send').textContent = go ? `Send ${go} application${go === 1 ? '' : 's'}` : 'Pick at least one';
+  $('sendNote').textContent = over
+    ? `LinkedIn allows ${d.cap_left} more today, so ${over} wait${over === 1 ? 's' : ''} for tomorrow.`
+    : `Each one counts only after LinkedIn shows "Application sent".`;
+}
+
+function renderRest() {
+  $('tToday').textContent = d.sent_today;
+  $('tCap').textContent = `${d.cap_left}/${d.cap}`;
+  $('tAll').textContent = d.all_time;
+  if (d.today.length) {
+    $('todayCard').classList.remove('hide');
+    $('today').innerHTML = d.today.map(a => `<div class="stat">
+      <span>${esc(a.company)} <span class="dim">·</span> ${esc(a.title)}</span>
+      <span class="sub num">${clock(a.at)}${a.cv ? ' · ' + esc(a.cv) : ''}</span></div>`).join('');
+  } else $('todayCard').classList.add('hide');
+  const w = d.waiting;
+  $('waiting').innerHTML =
+    `<div class="stat"><span>Postings in the queue</span><b>${w.total}</b></div>`
+    + (w.questions
+      ? `<div class="stat"><span>${w.questions} question${w.questions === 1 ? '' : 's'} block ${w.blocked} of them</span>
+           <a class="btn ghost" href="/answers" style="min-height:36px;padding:7px 13px">Answer</a></div>`
+      : `<div class="stat"><span>No questions waiting</span><span class="pill good">clear</span></div>`);
+}
+
+async function load() {
+  try {
+    d = await api('GET', '/api/dashboard');
+    renderScan(d.scan); renderReady(); renderRest();
+  } catch (e) { $('scanLine').textContent = 'Could not load: ' + e.message; }
+  clearTimeout(timer);
+  timer = setTimeout(load, d && d.scan.running ? 8000 : 45000);
+}
+
+$('allNone').onclick = () => {
+  touched = true;
+  picked = picked.size ? new Set() : new Set(d.ready.map(r => r.id));
+  renderReady();
+};
+
+$('send').onclick = async () => {
+  const ids = d.ready.filter(r => picked.has(r.id)).map(r => r.id);
+  if (!ids.length) return;
+  $('send').disabled = true; $('send').textContent = 'Sending…';
+  try {
+    const r = await api('POST', '/api/send-ready', { item_ids: ids, limit: ids.length });
+    toast(r.sending ? `Sending ${r.sending} — each is checked on LinkedIn before it counts`
+                    : (r.detail || 'Nothing was sent'));
+    touched = false;
+  } catch (e) { toast(e.message); }
+  load();
+};
+
+$('scanNow').onclick = async () => {
+  $('scanNow').disabled = true;
+  try {
+    const r = await api('POST', '/api/run-now');
+    toast(r.run_id ? 'Scan started' : (r.detail || 'Nothing to scan'));
+  } catch (e) { toast(e.message); }
+  load();
+};
+
+$('toggle').onclick = async () => {
+  try {
+    const r = await api('POST', '/api/scan/toggle', { enabled: !d.scan.enabled });
+    toast(r.enabled ? 'Hourly scanning resumed' : 'Hourly scanning paused — sending is unaffected');
+  } catch (e) { toast(e.message); }
+  load();
+};
+
+load();
+</script>
+</body>
+</html>

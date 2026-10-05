@@ -20,9 +20,10 @@ function toast(message) {
 
 /* Same header everywhere, current page marked. */
 function navBar(current) {
-  const pages = [['/today', 'Today'], ['/assist', 'Queue'], ['/answers', 'Answers'],
-                 ['/applications', 'Sent'], ['/status', 'System'], ['/settings', 'Settings']];
-  return `<a class="brand" href="/today"><i>⚡</i> CV Sender</a>
+  const pages = [['/dashboard', 'Dashboard'], ['/today', 'Today'], ['/assist', 'Queue'],
+                 ['/answers', 'Answers'], ['/applications', 'Sent'], ['/status', 'System'],
+                 ['/settings', 'Settings']];
+  return `<a class="brand" href="/dashboard"><i>⚡</i> CV Sender</a>
     <nav>${pages.map(([href, label]) =>
       `<a href="${href}"${href === current ? ' class="on" aria-current="page"' : ''}>${label}</a>`
     ).join('')}</nav>`;

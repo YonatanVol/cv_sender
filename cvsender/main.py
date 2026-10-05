@@ -274,6 +274,14 @@ def _check_origin(request: Request) -> None:
 
 @app.get("/")
 def index():
+    # The dashboard is home: the link on the phone is the bare address, and
+    # that should open on "what is ready, and the Send button".
+    return FileResponse(str(WEB / "dashboard.html"))
+
+
+@app.get("/console")
+def console_page():
+    """The original run console, still reachable."""
     return FileResponse(str(WEB / "index.html"))
 
 
@@ -704,6 +712,83 @@ async def run_now(request: Request):
         return JSONResponse({"ok": True, "run_id": None,
                              "detail": store.get_setting(scheduler.LAST_STAGING_RESULT)})
     return JSONResponse({"ok": True, "run_id": run_id}, status_code=201)
+
+
+# ------------------------------- dashboard ---------------------------------
+# One screen for the loop Yonatan asked for on 2026-10-05: the machine scans
+# every hour, and he sends — by hand, from here, every time.
+
+@app.get("/dashboard")
+def dashboard_page():
+    return FileResponse(str(WEB / "dashboard.html"))
+
+
+def _ready_card(it: dict) -> dict:
+    rj = json.loads(it.get("result_json") or "{}")
+    sj = json.loads(it.get("score_json") or "{}")
+    handle = rj.get("handle") or {}
+    first = it.get("first_seen_at")
+    return {
+        "id": it["id"], "company": it["company"], "title": it["title"],
+        "channel": it["channel"], "location": it.get("location") or "",
+        "score": it.get("score"), "band": sj.get("band", ""),
+        "reasons": [r.get("label") for r in (sj.get("reasons") or [])
+                    if (r.get("points") or 0) > 0][:3],
+        "cv": handle.get("cv_variant") or "general",
+        "address": (handle.get("answers") or {}).get("location", ""),
+        "url": it.get("apply_url") or it.get("url"),
+        "found_min_ago": round((time.time() - first) / 60) if first else None,
+        "shot": it.get("screenshot_prepare"),
+    }
+
+
+@app.get("/api/dashboard")
+def api_dashboard():
+    from .engine import worker
+    st = scheduler.status()
+    active = store.get_active_run()
+    scan = None
+    if active:
+        counts = store.item_counts(active["id"])
+        scan = {"id": active["id"], "status": active["status"],
+                "phase": active.get("phase"), "counts": counts,
+                "started_ts": active.get("started_at")}
+    queue = store.assist_queue(1000)
+    ready = [_ready_card(i) for i in queue if i["state"] == "ready"]
+    ready.sort(key=lambda r: -(r["score"] or 0))
+    gaps = store.answer_gaps(500)
+    today = [{"company": a["company"], "title": a["title"],
+              "at": a["sent_at"], "cv": a.get("cv_variant") or ""}
+             for a in store.list_applications(None, 50)
+             if a.get("sent_at") and time.strftime("%Y-%m-%d", time.localtime(a["sent_at"]))
+             == time.strftime("%Y-%m-%d")]
+    return JSONResponse({
+        "scan": {
+            "enabled": st["enabled"], "every_min": st["every_min"],
+            "window": st["window"], "last_ts": st["last_scan_ts"],
+            "next_ts": st["next_scan_ts"] if st["enabled"] else None,
+            "last_result": st["last_staging_result"],
+            "channels": st["channels"], "running": scan,
+        },
+        "ready": ready,
+        "sent_today": store.sent_today(),
+        "cap": worker.linkedin_daily_cap(),
+        "cap_left": worker.linkedin_cap_left(),
+        "today": today,
+        "waiting": {"total": len(queue), "questions": len(gaps),
+                    "blocked": sum(g["blocking"] for g in gaps)},
+        "all_time": len(store.list_applications(None, 10000)),
+    })
+
+
+@app.post("/api/scan/toggle")
+async def scan_toggle(request: Request):
+    """Pause or resume the hourly scan. Sending is never automatic either way."""
+    _check_origin(request)
+    body = await request.json() if await request.body() else {}
+    on = bool(body.get("enabled", not scheduler.enabled()))
+    store.set_setting(scheduler.ENABLED, "1" if on else "0")
+    return JSONResponse({"ok": True, "enabled": on})
 
 
 @app.get("/api/cv/variants")

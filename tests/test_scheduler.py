@@ -1,5 +1,6 @@
-"""The scheduler keeps the queue stocked without anyone starting it — and must
-never send, never fight the browser, and never stage twice in a day."""
+"""The scheduler scans for new postings every hour of the day without anyone
+starting it — and must never send, never fight the browser, and never scan
+overnight. Sending is Yonatan's button."""
 import time
 
 import pytest
@@ -27,27 +28,76 @@ def env(tmp_path, monkeypatch):
     return scheduler, store, started, fake
 
 
-def _day(h, m, day="2026-09-20"):
-    return time.strptime(f"{day} {h:02d}:{m:02d}", "%Y-%m-%d %H:%M")
+def _at(h, m, day="2026-10-05"):
+    return time.mktime(time.strptime(f"{day} {h:02d}:{m:02d}", "%Y-%m-%d %H:%M"))
 
 
-def test_due_only_after_the_hour_and_once_a_day(env):
+def test_scans_every_hour_inside_the_day(env):
     sched, store, _, _ = env
-    today = time.strftime("%Y-%m-%d")
-    assert sched.due_now(_day(7, 0, today), None) is False       # too early
-    assert sched.due_now(_day(8, 30, today), None) is True       # on time
-    assert sched.due_now(_day(13, 0, today), None) is True       # catch-up
-    assert sched.due_now(_day(22, 0, today), None) is False      # too late
-    assert sched.due_now(_day(9, 0, today), today) is False      # already staged
+    assert sched.due_now(_at(9, 0), None) is True                  # never scanned
+    assert sched.due_now(_at(9, 30), _at(9, 0)) is False           # 30 min later
+    assert sched.due_now(_at(10, 0), _at(9, 0)) is True            # an hour later
+    assert sched.due_now(_at(22, 59), _at(21, 50)) is True         # last slot
 
 
-def test_staging_respects_the_target_and_never_sends(env):
+def test_never_scans_overnight(env):
+    """Sending is manual, so a 03:00 posting waits for the morning anyway, and
+    every scan is LinkedIn traffic on his account."""
+    sched, store, _, _ = env
+    assert sched.due_now(_at(23, 30), _at(21, 0)) is False
+    assert sched.due_now(_at(3, 0), None) is False
+    assert sched.due_now(_at(6, 59), _at(22, 0, "2026-10-04")) is False
+    assert sched.due_now(_at(7, 0), _at(22, 0, "2026-10-04")) is True
+
+
+def test_a_mac_that_slept_scans_once_not_once_per_missed_hour(env):
     sched, store, started, _ = env
-    store.set_setting("run.target", "3")
+    store.set_setting(sched.LAST_SCAN_AT, str(_at(9, 0)))
+    assert sched.due_now(_at(15, 0), _at(9, 0)) is True            # owed
+    sched.stage_now()
+    last = float(store.get_setting(sched.LAST_SCAN_AT))
+    assert sched.due_now(last + 60, last) is False                 # and only once
+
+
+def test_interval_and_window_are_settings(env):
+    sched, store, _, _ = env
+    store.set_setting("scan.every_min", "30")
+    store.set_setting("scan.from_hour", "0")
+    store.set_setting("scan.to_hour", "24")
+    assert sched.due_now(_at(3, 0), _at(2, 29)) is True
+    assert sched.every_min() == 30 and sched.window() == (0, 24)
+
+
+def test_the_interval_has_a_floor(env):
+    """A typo of '1' must not mean a LinkedIn search every minute."""
+    sched, store, _, _ = env
+    store.set_setting("scan.every_min", "1")
+    assert sched.every_min() == 10
+
+
+def test_linkedin_is_scanned_by_default_and_first(env):
+    """The old default was the job boards only — the channels that almost never
+    finish an application — so nothing was sent for 13 days."""
+    sched, store, started, _ = env
+    sched.stage_now()
+    chans = started[0][1]["channels"]
+    assert chans[0] == "linkedin" and "greenhouse" in chans
+
+
+def test_a_scan_never_sends_and_reads_one_page(env):
+    sched, store, started, _ = env
     run_id = sched.stage_now()
-    assert run_id is not None and started[0][1]["mode"] == "dry"
-    assert started[0][1]["cap"] == 3
-    assert store.get_run(run_id)["mode"] == "dry"
+    opts = started[0][1]
+    assert opts["mode"] == "dry" and store.get_run(run_id)["mode"] == "dry"
+    assert opts["linkedin_pages"] == 1                 # newest-first: page one
+    assert opts["cap"] == 30
+
+
+def test_a_full_queue_does_not_stop_the_scan(env):
+    """A full queue is exactly when a fresh posting is worth seeing first."""
+    sched, store, started, _ = env
+    store.set_setting("run.target", "0")
+    assert sched.stage_now() is not None
 
 
 def test_no_staging_while_the_browser_is_busy(env):
@@ -94,12 +144,13 @@ def test_the_loop_survives_a_failing_tick(env, monkeypatch):
     assert "boom" in (store.get_setting(sched.LAST_STAGING_RESULT) or "")
 
 
-def test_status_reports_what_the_doctor_prints(env):
+def test_status_reports_what_the_dashboard_shows(env):
     sched, store, _, _ = env
-    store.set_setting("run.target", "120")
     st = sched.status()
-    assert st["enabled"] is True and st["target_depth"] == 120
-    assert st["next_staging_at"] == "08:30"
+    assert st["enabled"] is True and st["every_min"] == 60
+    assert st["window"] == [7, 23]
+    assert st["channels"][0] == "linkedin"
+    assert len(st["next_staging_at"]) == 5            # HH:MM
 
 
 def test_a_parked_run_never_blocks_the_next_staging(env):
@@ -110,6 +161,34 @@ def test_a_parked_run_never_blocks_the_next_staging(env):
     store.update_run(first, status="awaiting_confirm")
     assert store.get_active_run() is None
     assert store.parked_run()["id"] == first
-    store.set_setting(sched.LAST_STAGING, None)           # next day
     second = sched.stage_now()
     assert second is not None and second != first
+
+
+# ------------------- LinkedIn gets the cap before the boards ----------------
+
+def test_linkedin_is_prepared_before_the_job_boards(env, monkeypatch):
+    """Both share one cap. The boards used to run first, so a scan that found
+    forty Greenhouse postings left LinkedIn — the channel that sends — none."""
+    import asyncio
+    from cvsender.engine import worker
+
+    calls = []
+
+    async def fake_li(run_id, options, cancel, cap, profile, cv_path):
+        calls.append(("linkedin", cap)); return cap - 25
+
+    async def fake_ats(run_id, options, cancel, cap, profile, cv_path, channels):
+        calls.append(("ats", cap)); return 0
+
+    monkeypatch.setattr(worker, "_prepare_linkedin", fake_li)
+    monkeypatch.setattr(worker, "_prepare_ats", fake_ats)
+    sched, store, _, _ = env
+    run_id = store.create_run_atomic({"channels": ["linkedin", "greenhouse"]}, "dry")
+
+    class Cancel:
+        def check(self): pass
+
+    asyncio.run(worker.run_prepare(run_id, {"channels": ["linkedin", "greenhouse"],
+                                            "cap": 30}, Cancel()))
+    assert calls == [("linkedin", 30), ("ats", 5)]

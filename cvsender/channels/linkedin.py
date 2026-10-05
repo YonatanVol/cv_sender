@@ -209,7 +209,8 @@ class LinkedInChannel:
         return "/login" not in url
 
     # ------------------------------ discover ------------------------------
-    async def discover(self, page, geography: str = "israel_remote") -> list[Job]:
+    async def discover(self, page, geography: str = "israel_remote",
+                       pages: int = 2) -> list[Job]:
         """Collect Easy Apply junior roles from LinkedIn search.
 
         2026-09: result cards are virtualised. Only cards scrolled into view
@@ -221,7 +222,7 @@ class LinkedInChannel:
         location = "Israel"
         seen: dict[str, Job] = {}
         for q in QUERIES:
-            for start in (0, 25):
+            for start in (0, 25)[:max(1, pages)]:
                 params = {"keywords": q, "location": location, "f_AL": "true",
                           "f_E": "1,2", "sortBy": "DD"}
                 if start:
