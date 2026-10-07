@@ -77,3 +77,27 @@ def test_events_cursor(db):
     e2 = db.add_event(run, "phase", "two")
     after = db.events_after(run, e1)
     assert len(after) == 1 and after[0]["id"] == e2
+
+
+def test_a_finished_parked_run_is_not_called_interrupted(db):
+    """2026-10-07: after the Mac restarted at 20:07, every scan of the day —
+    each one finished, 'Prepared: 3 ready …' — was relabelled 'interrupted' at
+    20:09, which read as six failed scans. A parked run with nothing in flight
+    has nothing to reconcile; its ready items stay sendable."""
+    run = db.create_run_atomic({}, "dry")
+    ready = _item(db, run, key="k-ready", state="ready")
+    db.update_run(run, status="awaiting_confirm", heartbeat_at=time.time() - 999,
+                  worker_pid=999999, message="Prepared: 1 ready · 0 need input · 0 failed")
+    assert run not in db.sweep_stale_runs(stale_after_s=30)
+    assert db.get_run(run)["status"] == "awaiting_confirm"
+    assert db.get_item(ready)["state"] == "ready"
+
+
+def test_a_parked_run_with_a_send_in_flight_is_still_reconciled(db):
+    run = db.create_run_atomic({}, "live")
+    send = _item(db, run, key="k-send", state="sending")
+    db.update_run(run, status="awaiting_confirm", heartbeat_at=time.time() - 999,
+                  worker_pid=999999)
+    assert run in db.sweep_stale_runs(stale_after_s=30)
+    assert db.get_item(send)["state"] == "needs_input"     # never auto-sent
+    assert db.get_run(run)["status"] == "interrupted"

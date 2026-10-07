@@ -938,7 +938,7 @@ def sweep_stale_runs(stale_after_s: float) -> list[int]:
     swept: list[int] = []
     with tx() as c:
         rows = c.execute(
-            "SELECT id, heartbeat_at, worker_pid FROM runs "
+            "SELECT id, status, heartbeat_at, worker_pid FROM runs "
             "WHERE status IN ('running','awaiting_confirm','sending')").fetchall()
         # (parked runs are included here on purpose: a dead worker must still
         # release their 'preparing'/'sending' items, even though a parked run
@@ -948,6 +948,15 @@ def sweep_stale_runs(stale_after_s: float) -> list[int]:
             if (now - hb) < stale_after_s and _pid_alive(r["worker_pid"]):
                 continue
             rid = r["id"]
+            if r["status"] == "awaiting_confirm":
+                in_flight = c.execute(
+                    "SELECT COUNT(*) FROM run_items WHERE run_id=? "
+                    "AND state IN ('preparing','sending')", (rid,)).fetchone()[0]
+                if not in_flight:
+                    # Finished and parked: nothing was cut short, so nothing to
+                    # reconcile. Relabelling it 'interrupted' after a restart
+                    # made a day of completed scans read as failures.
+                    continue
             c.execute("UPDATE run_items SET state='queued', updated_at=? "
                       "WHERE run_id=? AND state='preparing'", (now, rid))
             c.execute("UPDATE run_items SET state='needs_input', "
